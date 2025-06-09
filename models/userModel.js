@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema(
     resetPasswordOtpExpirationTime: { type: Number, default: 0 },
 
     role: { type: String, enum: ['class-rep', 'student'], required: true },
+
+    // ✅ Add this line:
+    isNewUser: { type: Boolean, default: true },
   },
   options
 );

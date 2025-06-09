@@ -1,6 +1,8 @@
+import User from '../models/userModel.js';
 import { createClassRep } from '../utils/createClassRep.js';
 import { createStudent } from '../utils/createStudent.js';
 import { createToken } from '../utils/createToken.js';
+import bcrypt from 'bcryptjs';
 
 export const register = async (req, res) => {
   const { role, ...userData } = req.body;
@@ -32,8 +34,9 @@ export const register = async (req, res) => {
   }
 };
 
-const login = async (req, res) => {
+export const login = async (req, res) => {
   const { password, identifier } = req.body;
+  console.log(`pass: ${password} username: ${identifier}`);
   if (!identifier || !password) {
     return res.status(400).json({
       success: false,
@@ -41,7 +44,7 @@ const login = async (req, res) => {
     });
   }
   try {
-    const user = await userModel.findOne({
+    const user = await User.findOne({
       $or: [{ email: identifier }, { username: identifier }],
     });
     if (!user) {
@@ -60,9 +63,11 @@ const login = async (req, res) => {
 
     createToken(user._id, res);
 
-    return res
-      .status(200)
-      .json({ message: 'You are logged in successfully', success: true });
+    return res.status(200).json({
+      user,
+      message: 'You are logged in successfully',
+      success: true,
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
