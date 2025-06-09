@@ -1,18 +1,3 @@
-// {department:"Philosophy"email:"rep123@gmail.com"
-// faculty:"Arts"
-// level:"300L"
-// name:"nnnnn"
-// otp0:"1"
-// otp1:"2"
-// otp2:"3"
-// otp3:"4"
-// otp4:"5"
-// otp5:"6"
-// password:"1234nnn"
-// profilePicture:null
-// role:"student"}
-// };
-
 import { createClassRep } from '../utils/createClassRep.js';
 import { createStudent } from '../utils/createStudent.js';
 import { createToken } from '../utils/createToken.js';
@@ -44,5 +29,44 @@ export const register = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: err.message || 'Server error' });
+  }
+};
+
+const login = async (req, res) => {
+  const { password, identifier } = req.body;
+  if (!identifier || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email/username and password are required.',
+    });
+  }
+  try {
+    const user = await userModel.findOne({
+      $or: [{ email: identifier }, { username: identifier }],
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+    const passwordIsMatch = await bcrypt.compare(password, user.password);
+    if (!passwordIsMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Incorrect password.',
+      });
+    }
+
+    createToken(user._id, res);
+
+    return res
+      .status(200)
+      .json({ message: 'You are logged in successfully', success: true });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server Error!',
+    });
   }
 };
