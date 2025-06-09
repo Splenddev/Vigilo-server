@@ -15,10 +15,11 @@ connectDB();
 // Middleware
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173', 'https://vigilo.onrender.com'],
     credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(morgan('dev'));
 app.use(cookieParser());
