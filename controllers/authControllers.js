@@ -27,7 +27,7 @@ export const register = async (req, res) => {
 
     res.status(201).json({
       message: `${role === 'student' ? 'Student' : 'ClassRep'} account created`,
-      user,
+      success: true,
     });
   } catch (err) {
     res.status(500).json({ message: err.message || 'Server error' });
