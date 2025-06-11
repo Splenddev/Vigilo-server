@@ -1,4 +1,4 @@
-const generateOtp = () => {
+export const generateOtp = () => {
   let result = '';
   const numbers = '0123456789';
   for (let i = 0; i < 6; i++) {
