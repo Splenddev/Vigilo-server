@@ -21,6 +21,14 @@ app.use(
   })
 );
 
+app.options(
+  '*',
+  cors({
+    origin: ['http://localhost:5173', 'https://vigilo.onrender.com'],
+    credentials: true,
+  })
+);
+
 app.use(helmet()); // 🛡️ Secure headers
 app.use(express.json());
 app.use(morgan('dev'));
