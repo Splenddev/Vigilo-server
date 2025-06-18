@@ -2,7 +2,7 @@ import express from 'express';
 import { protect } from '../middlewares/auth.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
 import upload from '../middlewares/bannerUpload.js';
-import { createGroup } from '../controllers/group.controller.js';
+import { createGroup, findGroupById } from '../controllers/group.controller.js';
 
 const groupRoutes = express.Router();
 
@@ -14,5 +14,6 @@ groupRoutes.post(
   upload.single('bannerUrl'),
   createGroup
 );
+groupRoutes.get('/:groupId', protect, findGroupById);
 
 export default groupRoutes;
