@@ -179,3 +179,26 @@ export const verifyOtp = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+export const getCurrentUser = async (req, res) => {
+  try {
+    // req.user is populated by your `protect` middleware
+    if (!req.user) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Not authenticated' });
+    }
+
+    const user = await User.findById(req.user._id).select('-password');
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    console.error('Error fetching user:', error.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
