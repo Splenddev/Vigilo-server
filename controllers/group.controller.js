@@ -107,7 +107,7 @@ export const createGroup = async (req, res) => {
     user.group = groupObj._id;
     await user.save();
 
-    res.status(201).json({
+    res.status(201).json({ success:true,
       message: `Group for: ${groupName} created successfully.`,
       data: groupObj,
     });
