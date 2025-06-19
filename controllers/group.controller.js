@@ -1,54 +1,70 @@
 import Group from '../models/group.js';
 import User from '../models/userModel.js';
+import Schedule from '../models/schedule.model.js';
+import Attendance from '../models/attendance.model.js';
 
 export const createGroup = async (req, res) => {
   try {
-    const user = req.user; // From auth middleware
-
+    const user = req.user;
     const {
       groupName,
       course = '',
       description = '',
       classRules = '',
-      assistantReps = [],
-      attendancePolicy = {},
       visibility = 'public',
       academicYear = '',
       groupLink = '',
       department,
       faculty,
       level,
-      schedules = [],
-      tags = [],
+      assistantReps,
+      attendancePolicy,
+      tags,
+      schedules,
     } = req.body;
 
+    // Parse JSON fields
+    const parsedAssistantReps = JSON.parse(assistantReps || '[]');
+    const parsedPolicy = JSON.parse(attendancePolicy || '{}');
+    const parsedTags = JSON.parse(tags || '[]');
+    const parsedSchedules = JSON.parse(schedules || '[]');
+
+    // Basic validation
     if (user.role !== 'class-rep') {
       return res
         .status(403)
-        .json({ error: 'Only class reps can create groups' });
+        .json({ success: false, message: 'Only class reps can create groups' });
     }
 
     if (!groupName || !department || !faculty || !level) {
-      return res.status(400).json({ error: 'Required fields missing' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Required fields missing' });
     }
 
     const exists = await Group.findOne({ groupName, level, department });
     if (exists) {
-      return res.status(409).json({ error: 'Group already exists' });
+      return res
+        .status(409)
+        .json({ success: false, message: 'Group already exists' });
     }
 
+    // Resolve assistant reps to ObjectIds
     let validAssistantReps = [];
-    if (Array.isArray(assistantReps) && assistantReps.length > 0) {
-      validAssistantReps = await User.find({
-        matricNumber: { $in: assistantReps.map((rep) => rep.trim()) },
+    if (Array.isArray(parsedAssistantReps) && parsedAssistantReps.length > 0) {
+      const repsFound = await User.find({
+        matricNumber: { $in: parsedAssistantReps.map((rep) => rep.trim()) },
       }).select('_id');
 
-      if (validAssistantReps.length !== assistantReps.length) {
+      if (repsFound.length !== parsedAssistantReps.length) {
         return res.status(400).json({
-          error:
+          stauccessfalse,
+          message:
             'One or more assistant reps are invalid or not registered users.',
         });
       }
+
+      validAssistantReps = repsFound.map((u) => u._id);
     }
 
     const bannerUrl = req.file?.path || '';
@@ -59,16 +75,16 @@ export const createGroup = async (req, res) => {
       bannerUrl,
       description,
       classRules,
-      assistantReps,
-      attendancePolicy,
+      assistantReps: validAssistantReps,
+      attendancePolicy: parsedPolicy,
       visibility,
       academicYear,
       groupLink,
       department,
       faculty,
       level,
-      tags,
-      schedules,
+      tags: parsedTags,
+      schedules: parsedSchedules,
 
       createdBy: user._id,
       creator: {
@@ -94,7 +110,7 @@ export const createGroup = async (req, res) => {
     res.status(201).json(groupObj);
   } catch (err) {
     console.error('Group creation failed:', err);
-    res.status(500).json({ error: 'Failed to create group' });
+    res.status(500).json({ success: false, message: 'Failed to create group' });
   }
 };
 
@@ -106,10 +122,13 @@ export const findGroupById = async (req, res) => {
       .populate('assistantReps', 'name matricNumber')
       .lean({ virtuals: true });
 
-    if (!group) return res.status(404).json({ error: 'Group not found' });
+    if (!group)
+      return res
+        .status(404)
+        .json({ success: false, message: 'Group not found' });
     res.json(group);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };

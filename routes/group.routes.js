@@ -11,9 +11,9 @@ groupRoutes.post(
   '/create',
   protect,
   allowClassRepsOnly,
-  upload.single('bannerUrl'),
+  upload.single('banner'),
   createGroup
 );
-// groupRoutes.get('/find/:groupId', protect, findGroupById);
+groupRoutes.get('/find/:groupId', protect, findGroupById);
 
 export default groupRoutes;

@@ -12,7 +12,7 @@ import groupRoutes from './routes/group.routes.js';
 
 dotenv.config();
 const app = express();
-connectDB();
+await connectDB();
 
 app.use(
   cors({
@@ -21,18 +21,14 @@ app.use(
   })
 );
 
-app.options(
-  /.*/,
-  cors({
-    origin: ['http://localhost:5173', 'https://vigilo.onrender.com'],
-    credentials: true,
+app.use(cookieParser());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
-);
-
-app.use(helmet()); // 🛡️ Secure headers
+); // 🛡️ Secure headers
 app.use(express.json());
 app.use(morgan('dev'));
-app.use(cookieParser());
 
 // ⏱️ Rate limit auth routes
 const authLimiter = rateLimit({
@@ -49,10 +45,6 @@ app.use('/app/auth/send-otp', authLimiter);
 // Routes
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
-
-app.get('/*notfound', (req, res) => {
-  res.status(404).send('Not Found');
-});
 
 app.get('/', (req, res) => {
   res.send('API is live 🌐');

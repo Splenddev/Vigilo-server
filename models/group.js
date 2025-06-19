@@ -62,6 +62,7 @@ const groupSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      unique: true,
     },
     course: {
       type: String,
@@ -121,7 +122,7 @@ const groupSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ['100', '200', '300', '400', '500', '600', 'Final'],
+      enum: ['100L', '200L', '300L', '400L', '500L', '600L', 'Final'],
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

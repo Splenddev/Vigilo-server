@@ -3,8 +3,7 @@ import User from '../models/userModel.js';
 
 export const protect = async (req, res, next) => {
   try {
-    const token = req.cookies?.token;
-    // 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4NDc2MzNhN2RiYzg2MzJlYTQ5MDE0ZCIsImlhdCI6MTc1MDI4Mzg3MiwiZXhwIjoxNzUwODg4NjcyfQ.a5Ul5DDmBURC7dUjwgd1gPIrx8_l39xKQM2bNEL4krA';
+    const { token } = req.cookies;
 
     if (!token) {
       return res
