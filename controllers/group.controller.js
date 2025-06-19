@@ -58,7 +58,7 @@ export const createGroup = async (req, res) => {
 
       if (repsFound.length !== parsedAssistantReps.length) {
         return res.status(400).json({
-          stauccessfalse,
+          success:false,
           message:
             'One or more assistant reps are invalid or not registered users.',
         });
@@ -107,7 +107,7 @@ export const createGroup = async (req, res) => {
     user.group = groupObj._id;
     await user.save();
 
-    res.status(201).json({
+    res.status(201).json({ success:true,
       message: `Group for: ${groupName} created successfully.`,
       data: groupObj,
     });
