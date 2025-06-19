@@ -5,36 +5,6 @@ export const createGroup = async (req, res) => {
   try {
     const user = req.user; // From auth middleware
 
-    if (user.role !== 'class-rep') {
-      return res
-        .status(403)
-        .json({ error: 'Only class reps can create groups' });
-    }
-
-    if (!groupName || !department || !faculty || !level) {
-      return res.status(400).json({ error: 'Required fields missing' });
-    }
-
-    const exists = await Group.findOne({ groupName, level, department });
-    if (exists) {
-      return res.status(409).json({ error: 'Group already exists' });
-    }
-
-    let validAssistantReps = [];
-    if (Array.isArray(assistantReps) && assistantReps.length > 0) {
-      // If they’re matric numbers, find users by matricNumber
-      validAssistantReps = await User.find({
-        matricNumber: { $in: assistantReps.map((rep) => rep.trim()) },
-      }).select('_id');
-
-      if (validAssistantReps.length !== assistantReps.length) {
-        return res.status(400).json({
-          error:
-            'One or more assistant reps are invalid or not registered users.',
-        });
-      }
-    }
-
     const {
       groupName,
       course = '',
@@ -52,9 +22,37 @@ export const createGroup = async (req, res) => {
       tags = [],
     } = req.body;
 
+    if (user.role !== 'class-rep') {
+      return res
+        .status(403)
+        .json({ error: 'Only class reps can create groups' });
+    }
+
+    if (!groupName || !department || !faculty || !level) {
+      return res.status(400).json({ error: 'Required fields missing' });
+    }
+
+    const exists = await Group.findOne({ groupName, level, department });
+    if (exists) {
+      return res.status(409).json({ error: 'Group already exists' });
+    }
+
+    let validAssistantReps = [];
+    if (Array.isArray(assistantReps) && assistantReps.length > 0) {
+      validAssistantReps = await User.find({
+        matricNumber: { $in: assistantReps.map((rep) => rep.trim()) },
+      }).select('_id');
+
+      if (validAssistantReps.length !== assistantReps.length) {
+        return res.status(400).json({
+          error:
+            'One or more assistant reps are invalid or not registered users.',
+        });
+      }
+    }
+
     const bannerUrl = req.file?.path || '';
 
-    // Create the group
     const group = await Group.create({
       groupName,
       course,
@@ -89,7 +87,6 @@ export const createGroup = async (req, res) => {
       ],
     });
 
-    // Optional: include virtuals like memberCount
     const groupObj = group.toObject({ virtuals: true });
     user.group = groupObj._id;
     await user.save();
@@ -100,6 +97,7 @@ export const createGroup = async (req, res) => {
     res.status(500).json({ error: 'Failed to create group' });
   }
 };
+
 export const findGroupById = async (req, res) => {
   try {
     const group = await Group.findById(req.params.groupId)

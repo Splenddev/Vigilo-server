@@ -22,7 +22,7 @@ app.use(
 );
 
 app.options(
-  '*',
+  /.*/,
   cors({
     origin: ['http://localhost:5173', 'https://vigilo.onrender.com'],
     credentials: true,
@@ -49,6 +49,10 @@ app.use('/app/auth/send-otp', authLimiter);
 // Routes
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
+
+app.get('/*notfound', (req, res) => {
+  res.status(404).send('Not Found');
+});
 
 app.get('/', (req, res) => {
   res.send('API is live 🌐');
