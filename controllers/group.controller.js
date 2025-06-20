@@ -99,6 +99,7 @@ export const createGroup = async (req, res) => {
           name: user.name,
           matricNumber: user.matricNumber,
           role: user.role,
+          avatar: user.profilePicture,
         },
       ],
     });

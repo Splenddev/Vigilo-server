@@ -42,6 +42,7 @@ const memberSchema = new mongoose.Schema(
     },
     name: String,
     matricNumber: String,
+    avatar: String,
     role: {
       type: String,
       enum: ['student', 'class-rep', 'assistant-rep'],
