@@ -2,7 +2,11 @@ import express from 'express';
 import { protect } from '../middlewares/auth.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
 import upload from '../middlewares/bannerUpload.js';
-import { createGroup, findGroupById } from '../controllers/group.controller.js';
+import {
+  createGroup,
+  findGroupById,
+  searchGroup,
+} from '../controllers/group.controller.js';
 
 const groupRoutes = express.Router();
 
@@ -15,5 +19,7 @@ groupRoutes.post(
   createGroup
 );
 groupRoutes.get('/find/:groupId', protect, findGroupById);
+groupRoutes.get('/search', searchGroup);
+groupRoutes.get('/:groupId/join', protect, findGroupById);
 
 export default groupRoutes;

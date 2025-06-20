@@ -135,3 +135,36 @@ export const findGroupById = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+export const searchGroup = async (req, res) => {
+  const { department, level, faculty } = req.query;
+
+  const filters = {
+    visibility: 'public',
+    isArchived: false,
+  };
+
+  if (department) filters.department = department;
+  if (level) filters.level = level;
+  if (faculty) filters.faculty = faculty;
+
+  const groups = await Group.find(filters).select(
+    'groupName department level faculty'
+  );
+  res.json({ success: true, data: groups });
+};
+export const joinGroup = async (req, res) => {
+  const group = await Group.findById(req.params.groupId);
+  if (!group) return res.status(404).json({ message: 'Group not found' });
+
+  const alreadyRequested = group.joinRequests.find(
+    (r) => r.user.toString() === req.user._id.toString()
+  );
+
+  if (alreadyRequested)
+    return res.status(400).json({ message: 'Join request already sent' });
+
+  group.joinRequests.push({ user: req.user._id });
+  await group.save();
+
+  res.json({ success: true, message: 'Join request sent successfully' });
+};
