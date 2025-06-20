@@ -21,7 +21,7 @@ groupRoutes.post(
   createGroup
 );
 groupRoutes.get('/find/:groupId', protect, findGroupById);
-groupRoutes.get('/search', searchGroup);
+groupRoutes.get('/search', protect, searchGroup);
 groupRoutes.post('/:groupId/join', protect, joinGroup);
 groupRoutes.delete('/:groupId/join', protect, cancelJoinRequest);
 

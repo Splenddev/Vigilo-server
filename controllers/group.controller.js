@@ -141,7 +141,7 @@ export const searchGroup = async (req, res) => {
 
   if (faculty) filters.faculty = faculty;
   if (department) filters.department = department;
-  if (level) filters.level = level;
+  if (level) filters.level = level + 'L';
 
   try {
     let groups = await Group.find(filters)
@@ -168,11 +168,15 @@ export const searchGroup = async (req, res) => {
 
     const joinStatus = {};
     groups.forEach((g) => {
-      joinStatus[g._id] = g.joinRequests.some((jr) =>
-        jr.user.equals(req.user._id)
-      )
-        ? 'pending'
-        : 'none';
+      if (!req.user) {
+        joinStatus[g._id] = 'none';
+      } else {
+        joinStatus[g._id] = g.joinRequests.some((jr) =>
+          jr.user.equals(req.user._id)
+        )
+          ? 'pending'
+          : 'none';
+      }
     });
 
     res.json({ success: true, groups, joinStatus });
