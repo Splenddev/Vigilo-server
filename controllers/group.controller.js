@@ -136,35 +136,95 @@ export const findGroupById = async (req, res) => {
   }
 };
 export const searchGroup = async (req, res) => {
-  const { department, level, faculty } = req.query;
+  const { query, faculty, department, level, sortOrder = 'asc' } = req.query;
+  const filters = { visibility: 'public', isArchived: false };
 
-  const filters = {
-    visibility: 'public',
-    isArchived: false,
-  };
-
+  if (faculty) filters.faculty = faculty;
   if (department) filters.department = department;
   if (level) filters.level = level;
-  if (faculty) filters.faculty = faculty;
 
-  const groups = await Group.find(filters).select(
-    'groupName department level faculty'
-  );
-  res.json({ success: true, data: groups });
+  try {
+    let groups = await Group.find(filters)
+      .select(
+        'groupName faculty department level visibility creator joinRequests bannerUrl'
+      )
+      .populate('creator', 'name')
+      .lean();
+
+    if (query) {
+      const q = query.toLowerCase();
+      groups = groups.filter(
+        (g) =>
+          g.groupName.toLowerCase().includes(q) ||
+          g.creator?.name?.toLowerCase().includes(q)
+      );
+    }
+
+    groups.sort((a, b) =>
+      sortOrder === 'asc'
+        ? a.groupName.localeCompare(b.groupName)
+        : b.groupName.localeCompare(a.groupName)
+    );
+
+    const joinStatus = {};
+    groups.forEach((g) => {
+      joinStatus[g._id] = g.joinRequests.some((jr) =>
+        jr.user.equals(req.user._id)
+      )
+        ? 'pending'
+        : 'none';
+    });
+
+    res.json({ success: true, groups, joinStatus });
+  } catch (err) {
+    console.error('FetchGroups error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
 };
+
 export const joinGroup = async (req, res) => {
-  const group = await Group.findById(req.params.groupId);
-  if (!group) return res.status(404).json({ message: 'Group not found' });
+  const { groupId } = req.params;
+  const userId = req.user._id;
 
-  const alreadyRequested = group.joinRequests.find(
-    (r) => r.user.toString() === req.user._id.toString()
-  );
+  try {
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-  if (alreadyRequested)
-    return res.status(400).json({ message: 'Join request already sent' });
+    const already = group.joinRequests.some((jr) => jr.user.equals(userId));
+    if (already)
+      return res.status(400).json({ message: 'Request already sent' });
 
-  group.joinRequests.push({ user: req.user._id });
-  await group.save();
+    group.joinRequests.push({ user: userId });
+    await group.save();
 
-  res.json({ success: true, message: 'Join request sent successfully' });
+    res.json({ success: true, message: 'Join request sent' });
+  } catch (err) {
+    console.error('requestJoinGroup error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const cancelJoinRequest = async (req, res) => {
+  const { groupId } = req.params;
+  const userId = req.user._id;
+
+  try {
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+
+    const beforeCount = group.joinRequests.length;
+    group.joinRequests = group.joinRequests.filter(
+      (jr) => !jr.user.equals(userId)
+    );
+
+    if (group.joinRequests.length === beforeCount) {
+      return res.status(400).json({ message: 'No pending request to cancel' });
+    }
+
+    await group.save();
+    res.json({ success: true, message: 'Join request canceled' });
+  } catch (err) {
+    console.error('cancelJoinRequest error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
 };

@@ -3,8 +3,10 @@ import { protect } from '../middlewares/auth.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
 import upload from '../middlewares/bannerUpload.js';
 import {
+  cancelJoinRequest,
   createGroup,
   findGroupById,
+  joinGroup,
   searchGroup,
 } from '../controllers/group.controller.js';
 
@@ -20,6 +22,7 @@ groupRoutes.post(
 );
 groupRoutes.get('/find/:groupId', protect, findGroupById);
 groupRoutes.get('/search', searchGroup);
-groupRoutes.get('/:groupId/join', protect, findGroupById);
+groupRoutes.post('/:groupId/join', protect, joinGroup);
+groupRoutes.delete('/:groupId/join', protect, cancelJoinRequest);
 
 export default groupRoutes;
