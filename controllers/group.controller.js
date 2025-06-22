@@ -108,10 +108,13 @@ export const createGroup = async (req, res) => {
     user.group = groupObj._id;
     await user.save();
 
-    res.status(201).json({
-      message: `Group for: ${groupName} created successfully.`,
-      data: groupObj,
-    });
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: `Group for: ${groupName} created successfully.`,
+        data: groupObj,
+      });
   } catch (err) {
     console.error('Group creation failed:', err);
     res.status(500).json({ success: false, message: 'Failed to create group' });
