@@ -2,7 +2,9 @@ import mongoose from 'mongoose';
 import User from './userModel.js';
 
 const studentSchema = new mongoose.Schema({
-  matricNumber: { type: String, required: true, unique: true },
+  department: { type: String, required: true },
+  faculty: { type: String, required: true },
+  level: { type: String, required: true },
   group: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Group',

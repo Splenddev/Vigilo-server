@@ -209,25 +209,46 @@ export const joinGroup = async (req, res) => {
         .json({ success: false, message: 'Group not found' });
     }
 
-    // Check if user has already sent a request
-    const already = group.joinRequests.some((jr) => jr.user.equals(userId));
-    if (already) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Join request already sent.' });
+    // Prevent duplicate members
+    const isMember = group.members.some((member) => member.user.equals(userId));
+    if (isMember) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already a member of this group.',
+      });
     }
 
-    // Push to joinRequests
+    // Check for existing join request
+    const existingRequest = group.joinRequests.find((jr) =>
+      jr.user.equals(userId)
+    );
+
+    if (existingRequest) {
+      if (existingRequest.status === 'pending') {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Join request already sent.' });
+      } else {
+        // If user was previously rejected or approved, you may allow resending
+        return res.status(400).json({
+          success: false,
+          message: `You already submitted a request with status: ${existingRequest.status}.`,
+        });
+      }
+    }
+
+    // Create new join request
     group.joinRequests.push({
       user: userId,
       name,
       department,
       level,
       avatar: profilePicture,
+      status: 'pending',
+      requestedAt: new Date(),
     });
     await group.save();
 
-    // Save requested group on user
     user.requestedJoinGroup = groupId;
     await user.save();
 
