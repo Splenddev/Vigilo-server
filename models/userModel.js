@@ -20,6 +20,11 @@ const userSchema = new mongoose.Schema(
     resetPasswordOtp: { type: String, default: '' },
     resetPasswordOtpExpirationTime: { type: Number, default: 0 },
 
+    requestedJoinGroup: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Group',
+      default: null,
+    },
     role: { type: String, enum: ['class-rep', 'student'], required: true },
 
     // ✅ Add this line:

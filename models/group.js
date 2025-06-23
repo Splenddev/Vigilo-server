@@ -29,6 +29,12 @@ const joinRequestSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    name: String,
+    department: String,
+    level: String,
+    avatar: String,
+    matricNumber: String,
+    status: { type: String, default: 'pending' },
   },
   { _id: false }
 );
@@ -42,6 +48,8 @@ const memberSchema = new mongoose.Schema(
     },
     name: String,
     matricNumber: String,
+    department: String,
+    level: String,
     avatar: String,
     role: {
       type: String,

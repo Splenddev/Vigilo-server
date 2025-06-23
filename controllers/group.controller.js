@@ -11,7 +11,7 @@ export const createGroup = async (req, res) => {
       course = '',
       description = '',
       classRules = '',
-      visibility = 'public',
+      visibility = '',
       academicYear = '',
       groupLink = '',
       department,
@@ -42,7 +42,12 @@ export const createGroup = async (req, res) => {
         .json({ success: false, message: 'Required fields missing' });
     }
 
-    const exists = await Group.findOne({ groupName, level, department });
+    const exists = await Group.findOne({
+      groupName,
+      level,
+      department,
+      faculty,
+    });
     if (exists) {
       return res
         .status(409)
@@ -58,7 +63,7 @@ export const createGroup = async (req, res) => {
 
       if (repsFound.length !== parsedAssistantReps.length) {
         return res.status(400).json({
-          stauccessfalse,
+          success: false,
           message:
             'One or more assistant reps are invalid or not registered users.',
         });
@@ -108,13 +113,11 @@ export const createGroup = async (req, res) => {
     user.group = groupObj._id;
     await user.save();
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: `Group for: ${groupName} created successfully.`,
-        data: groupObj,
-      });
+    res.status(201).json({
+      success: true,
+      message: `Group for: ${groupName} created successfully.`,
+      data: groupObj,
+    });
   } catch (err) {
     console.error('Group creation failed:', err);
     res.status(500).json({ success: false, message: 'Failed to create group' });
@@ -192,23 +195,47 @@ export const searchGroup = async (req, res) => {
 
 export const joinGroup = async (req, res) => {
   const { groupId } = req.params;
-  const userId = req.user._id;
+  const user = req.user;
+
+  if (!user) return res.status(404).json({ message: 'User not found' });
+
+  const { _id: userId, name, department, level, avatar } = user;
 
   try {
     const group = await Group.findById(groupId);
-    if (!group) return res.status(404).json({ message: 'Group not found' });
+    if (!group) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Group not found' });
+    }
 
+    // Check if user has already sent a request
     const already = group.joinRequests.some((jr) => jr.user.equals(userId));
-    if (already)
-      return res.status(400).json({ message: 'Request already sent' });
+    if (already) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Join request already sent.' });
+    }
 
-    group.joinRequests.push({ user: userId });
+    // Push to joinRequests
+    group.joinRequests.push({ user: userId, name, department, level, avatar });
     await group.save();
 
-    res.json({ success: true, message: 'Join request sent' });
+    // Save requested group on user
+    user.requestedJoinGroup = groupId;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Join request sent successfully.',
+      groupId,
+    });
   } catch (err) {
     console.error('requestJoinGroup error:', err);
-    res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({
+      success: false,
+      message: 'An unexpected error occurred while submitting join request.',
+    });
   }
 };
 
@@ -234,5 +261,135 @@ export const cancelJoinRequest = async (req, res) => {
   } catch (err) {
     console.error('cancelJoinRequest error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const approveJoinRequest = async (req, res) => {
+  const { groupId, studentId } = req.params;
+  const repUser = req.user;
+
+  try {
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found. Please check the group ID.',
+      });
+    }
+
+    // Only group creator can approve
+    if (group.createdBy.toString() !== repUser._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You are not authorized to manage join requests for this group.',
+      });
+    }
+
+    const requestIndex = group.joinRequests.findIndex(
+      (r) => r.user.toString() === studentId
+    );
+
+    if (requestIndex === -1) {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending join request found for the specified student.',
+      });
+    }
+
+    const request = group.joinRequests[requestIndex];
+
+    // Avoid duplicate membership
+    const alreadyMember = group.members.some(
+      (member) => member._id.toString() === studentId
+    );
+
+    if (alreadyMember) {
+      return res.status(409).json({
+        success: false,
+        message: 'This user is already a member of the group.',
+      });
+    }
+
+    // Add to members
+    group.members.push({
+      _id: request.user,
+      name: request.name,
+      department: request.department,
+      level: request.level,
+      avatar: request.avatar,
+      role: 'student',
+      joinedAt: new Date(),
+      matricNumber: request.matricNumber,
+    });
+
+    // Remove join request
+    group.joinRequests.splice(requestIndex, 1);
+
+    await group.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${request.name} has been successfully approved and added to the group.`,
+      memberId: request.user,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while approving the join request.',
+      error: err.message,
+    });
+  }
+};
+
+export const rejectJoinRequest = async (req, res) => {
+  const { groupId, studentId } = req.params;
+  const repUser = req.user;
+
+  try {
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found. Please check the group ID.',
+      });
+    }
+
+    if (group.createdBy.toString() !== repUser._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You are not authorized to reject join requests for this group.',
+      });
+    }
+
+    const requestIndex = group.joinRequests.findIndex(
+      (r) => r.user.toString() === studentId
+    );
+
+    if (requestIndex === -1) {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending join request found for the specified student.',
+      });
+    }
+
+    const rejected = group.joinRequests[requestIndex];
+
+    // Remove the request
+    group.joinRequests.splice(requestIndex, 1);
+    await group.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${rejected.name}'s join request has been successfully rejected.`,
+      studentId: rejected.user,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while rejecting the join request.',
+      error: err.message,
+    });
   }
 };
