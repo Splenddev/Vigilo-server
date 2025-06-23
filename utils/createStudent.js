@@ -3,7 +3,16 @@ import Student from '../models/students.js';
 import { SALT_ROUNDS } from './constants.js';
 
 export const createStudent = async (data, profilePicture) => {
-  const { name, email, password, username, matricNumber } = data;
+  const {
+    name,
+    email,
+    password,
+    username,
+    matricNumber,
+    department,
+    faculty,
+    level,
+  } = data;
 
   const existing = await Student.findOne({
     $or: [{ email }, { username }, { matricNumber }],
@@ -22,6 +31,9 @@ export const createStudent = async (data, profilePicture) => {
     matricNumber,
     group: null,
     profilePicture,
+    department,
+    faculty,
+    level,
   });
 
   return newStudent;

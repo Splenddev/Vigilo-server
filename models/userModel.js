@@ -9,16 +9,25 @@ const options = {
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
+
     matricNumber: { type: String, required: true, unique: true },
+
     email: { type: String, required: true, unique: true },
+
     password: { type: String, required: true },
+
     username: { type: String, required: true, unique: true },
+
     profilePicture: { type: String, default: null },
 
     verifyOtp: { type: String, default: '' },
+
     verifyOtpExpirationTime: { type: Number, default: 0 },
+
     isEmailVerified: { type: Boolean, default: false },
+
     resetPasswordOtp: { type: String, default: '' },
+
     resetPasswordOtpExpirationTime: { type: Number, default: 0 },
 
     requestedJoinGroup: {

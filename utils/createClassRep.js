@@ -3,7 +3,16 @@ import { SALT_ROUNDS } from './constants.js';
 import ClassRep from '../models/classRep.js';
 
 export const createClassRep = async (data) => {
-  const { name, email, password, username, department, faculty, level } = data;
+  const {
+    name,
+    email,
+    password,
+    username,
+    department,
+    faculty,
+    level,
+    matricNumber,
+  } = data;
 
   const existing = await ClassRep.findOne({ $or: [{ email }, { username }] });
   if (existing) throw new Error('Email or username already exists.');
@@ -20,6 +29,7 @@ export const createClassRep = async (data) => {
     faculty,
     level,
     group: null,
+    matricNumber,
   });
 
   return newRep;

@@ -210,7 +210,9 @@ export const joinGroup = async (req, res) => {
     }
 
     // Prevent duplicate members
-    const isMember = group.members.some((member) => member.user.equals(userId));
+    const isMember = group.members.some(
+      (member) => member.user && member.user.equals(userId)
+    );
     if (isMember) {
       return res.status(400).json({
         success: false,
