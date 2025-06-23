@@ -144,7 +144,7 @@ export const findGroupById = async (req, res) => {
 };
 export const searchGroup = async (req, res) => {
   const { query, faculty, department, level, sortOrder = 'asc' } = req.query;
-  const filters = { visibility: 'public', isArchived: false };
+  const filters = { isArchived: false };
 
   if (faculty) filters.faculty = faculty;
   if (department) filters.department = department;
