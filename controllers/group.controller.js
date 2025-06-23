@@ -199,7 +199,7 @@ export const joinGroup = async (req, res) => {
 
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  const { _id: userId, name, department, level, avatar } = user;
+  const { _id: userId, name, department, level, profilePicture } = user;
 
   try {
     const group = await Group.findById(groupId);
@@ -218,7 +218,13 @@ export const joinGroup = async (req, res) => {
     }
 
     // Push to joinRequests
-    group.joinRequests.push({ user: userId, name, department, level, avatar });
+    group.joinRequests.push({
+      user: userId,
+      name,
+      department,
+      level,
+      avatar: profilePicture,
+    });
     await group.save();
 
     // Save requested group on user

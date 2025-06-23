@@ -8,7 +8,7 @@ import { sendOtpEmail } from '../utils/sendOtp.js';
 
 export const register = async (req, res) => {
   const { role, ...userData } = req.body;
-  const profilePicture = req.file?.path || null;
+  const profilePicture = req.file?.path || '';
 
   if (!role) {
     return res.status(400).json({ message: 'Role is required.' });

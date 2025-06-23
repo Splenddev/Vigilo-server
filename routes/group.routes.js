@@ -1,7 +1,7 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
-import upload from '../middlewares/bannerUpload.js';
+import uploadBanner from '../middlewares/bannerUpload.js';
 import {
   approveJoinRequest,
   cancelJoinRequest,
@@ -19,7 +19,7 @@ groupRoutes.use(protect);
 groupRoutes.post(
   '/create',
   allowClassRepsOnly,
-  upload.single('banner'),
+  uploadBanner.single('banner'),
   createGroup
 );
 groupRoutes.get('/find/:groupId', findGroupById);
