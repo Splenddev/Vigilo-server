@@ -1,11 +1,6 @@
 // models/User.js
 import mongoose from 'mongoose';
 
-const options = {
-  discriminatorKey: 'role', // this enables role-based model extension
-  timestamps: true,
-};
-
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -35,12 +30,23 @@ const userSchema = new mongoose.Schema(
       ref: 'Group',
       default: null,
     },
+
     role: { type: String, enum: ['class-rep', 'student'], required: true },
 
-    // ✅ Add this line:
     isNewUser: { type: Boolean, default: true },
+
+    courses: [
+      {
+        courseCode: { type: String, required: true },
+        courseTitle: { type: String },
+        unit: { type: Number },
+      },
+    ],
   },
-  options
+  {
+    discriminatorKey: 'role',
+    timestamps: true,
+  }
 );
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);

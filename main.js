@@ -9,6 +9,8 @@ import rateLimit from 'express-rate-limit';
 import connectDB from './config/db.js';
 import userRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/group.routes.js';
+import scheduleRoutes from './routes/schedule.routes.js';
+import { errorHandler } from './middlewares/errorHandler.js';
 
 dotenv.config();
 const app = express();
@@ -45,10 +47,13 @@ app.use('/app/auth/send-otp', authLimiter);
 // Routes
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
+app.use('/app/schedule', scheduleRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is live 🌐');
 });
+
+app.use(errorHandler); // 🔥 global error handler
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
