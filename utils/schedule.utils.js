@@ -51,6 +51,7 @@ export const validateClassType = ({
 
 // Checks notificationLeadTime ≤ shortest duration
 export const validateLeadTime = ({ classDaysTimes, notificationLeadTime }) => {
+  console.log(classDaysTimes);
   const minDuration = Math.min(
     ...classDaysTimes.map(({ timing }) => {
       const dur = toMinutes(timing.endTime) - toMinutes(timing.startTime);

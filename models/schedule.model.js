@@ -1,15 +1,16 @@
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
+// File extension validation map
 const allowedExtensionsMap = {
   doc: ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'],
   image: ['.png', '.jpeg', '.webp'],
   video: ['.mp4', '.webm', '.avi'],
   audio: ['.mp3', '.aac', '.wav', '.wma'],
-  link: [], // no extensions needed
+  link: [], // no extensions
 };
 
-// Schema for class timing (per day)
+// Schema: Class Day & Time
 const classDayTimeSchema = new mongoose.Schema({
   day: {
     type: String,
@@ -28,7 +29,7 @@ const classDayTimeSchema = new mongoose.Schema({
     startTime: {
       type: String,
       required: true,
-      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // 24-hour format HH:mm
+      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // 24-hour format
     },
     endTime: {
       type: String,
@@ -38,7 +39,7 @@ const classDayTimeSchema = new mongoose.Schema({
   },
 });
 
-// Schema for media resources
+// Schema: Media
 const mediaSchema = new mongoose.Schema({
   id: {
     type: String,
@@ -59,13 +60,13 @@ const mediaSchema = new mongoose.Schema({
         return exts.every((ext) => allowed.includes(ext.toLowerCase()));
       },
       message: (props) =>
-        `Some extensions in [${props.value}] are not valid for fileType "${props.fileType}".`,
+        `Invalid extensions in [${props.value}] for fileType "${props.fileType}".`,
     },
   },
   src: { type: String, required: true },
   name: { type: String, required: true },
-  dateAdded: { type: String, required: true }, // 'YYYY-MM-DD'
-  timeAdded: { type: String, required: true }, // e.g. '11:47 AM'
+  dateAdded: { type: String, required: true }, // e.g. '2025-06-26'
+  timeAdded: { type: String, required: true }, // e.g. '11:45 AM'
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   uploadedAt: { type: Date, default: Date.now },
   approved: { type: Boolean, default: false },
@@ -81,15 +82,27 @@ const scheduleSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Course & Lecturer Info
     courseTitle: { type: String, required: true },
     courseCode: { type: String, required: true },
+    creditUnit: { type: String }, // optional
     lecturerName: { type: String, required: true },
-    classroomVenue: { type: String, required: true },
+    lecturerEmail: { type: String }, // optional
 
-    level: { type: String },
+    // Class Details
+    classroomVenue: { type: String, required: true },
     department: { type: String },
     faculty: { type: String },
+    level: { type: String },
+    classType: { type: String, enum: ['Physical', 'Virtual'] },
+    virtualLink: { type: String },
+    maxStudents: { type: Number },
+    classLocation: {
+      lat: { type: Number },
+      lng: { type: Number },
+    },
 
+    // Class Days & Times
     classDaysTimes: {
       type: [classDayTimeSchema],
       required: true,
@@ -99,17 +112,14 @@ const scheduleSchema = new mongoose.Schema(
       },
     },
 
-    media: [mediaSchema],
-
-    attendanceRecords: [
-      { type: mongoose.Schema.Types.ObjectId, ref: 'Attendance' },
-    ],
-
+    // Optional Add-ons
+    notes: { type: String },
     repeat: {
       type: String,
-      enum: ['once', 'weekly', 'bi-weekly'],
+      enum: ['once', 'weekly', 'bi-weekly', 'monthly'],
       default: 'weekly',
     },
+    autoEnd: { type: Boolean, default: false },
 
     isActive: { type: Boolean, default: true },
     allowAttendanceMarking: { type: Boolean, default: true },
@@ -120,6 +130,17 @@ const scheduleSchema = new mongoose.Schema(
       default: 30, // in minutes
     },
 
+    // Media
+    media: [mediaSchema],
+    allowMediaUploads: { type: Boolean, default: false },
+    mediaNeedsApproval: { type: Boolean, default: false },
+
+    // Attendance Records
+    attendanceRecords: [
+      { type: mongoose.Schema.Types.ObjectId, ref: 'Attendance' },
+    ],
+
+    // Audit
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -127,12 +148,15 @@ const scheduleSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // adds createdAt and updatedAt fields
+    timestamps: true,
   }
 );
 
+// Virtual for next class preview
 scheduleSchema.virtual('nextClassTime').get(function () {
-  return null;
+  return null; // Optional logic here
 });
 
-export default mongoose.model('Schedule', scheduleSchema);
+const scheduleModel =
+  mongoose.models.Schedule || mongoose.model('Schedule', scheduleSchema);
+export default scheduleModel;
