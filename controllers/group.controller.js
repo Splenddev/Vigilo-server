@@ -358,6 +358,13 @@ export const approveJoinRequest = async (req, res) => {
 
     // Update student's group reference
     const student = await User.findById(studentId);
+    console.log(student);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found. Please check the group ID.',
+      });
+    }
     student.group = groupId;
     await student.save();
 
