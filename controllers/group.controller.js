@@ -306,7 +306,6 @@ export const approveJoinRequest = async (req, res) => {
       });
     }
 
-    // Only group creator can approve
     if (group.createdBy.toString() !== repUser._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -328,7 +327,6 @@ export const approveJoinRequest = async (req, res) => {
 
     const request = group.joinRequests[requestIndex];
 
-    // Avoid duplicate membership
     const alreadyMember = group.members.some(
       (member) => member._id.toString() === studentId
     );
@@ -340,7 +338,7 @@ export const approveJoinRequest = async (req, res) => {
       });
     }
 
-    // Add to members
+    // Add student to members list
     group.members.push({
       _id: request.user,
       name: request.name,
@@ -352,14 +350,20 @@ export const approveJoinRequest = async (req, res) => {
       matricNumber: request.matricNumber,
     });
 
-    // Remove join request
-    group.joinRequests.splice(requestIndex, 1);
+    // ✅ Update join request status
+    group.joinRequests[requestIndex].status = 'approved';
+    group.joinRequests[requestIndex].updatedAt = new Date();
 
     await group.save();
 
+    // Update student's group reference
+    const student = await User.findById(studentId);
+    student.group = groupId;
+    await student.save();
+
     return res.status(200).json({
       success: true,
-      message: `${request.name} has been successfully approved and added to the group.`,
+      message: `${request.name} has been approved and added to the group.`,
       memberId: request.user,
     });
   } catch (err) {

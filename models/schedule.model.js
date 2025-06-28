@@ -1,3 +1,5 @@
+//schedule.model.js
+
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -65,7 +67,18 @@ const mediaSchema = new mongoose.Schema({
   },
   src: { type: String, required: true },
   name: { type: String, required: true },
-  dateAdded: { type: String, required: true }, // e.g. '2025-06-26'
+  dateAdded: { type: String, required: true }, // e.g. '2025-06-26',
+  cloudinaryId: {
+    // ➟ the public_id Cloudinary returns
+    type: String,
+    required: true,
+  },
+  resourceType: {
+    // ➟ image | video | raw    (audio counts as video)
+    type: String,
+    enum: ['image', 'video', 'raw'],
+    required: true,
+  },
   timeAdded: { type: String, required: true }, // e.g. '11:45 AM'
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   uploadedAt: { type: Date, default: Date.now },

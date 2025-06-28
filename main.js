@@ -32,14 +32,20 @@ app.use(
 app.use(express.json());
 app.use(morgan('dev'));
 
-// ⏱️ Rate limit auth routes
 const authLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 5,
-  message: {
-    success: false,
-    message: 'Too many attempts. Please try again later.',
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5, // Max 5 attempts per email
+  keyGenerator: (req, res) => {
+    return req.body?.email || req.ip; // Use email if available, fallback to IP
   },
+  message: (req, res) => ({
+    success: false,
+    message: `You've made too many attempts using this ${
+      req.body?.email ? 'email' : 'device'
+    }. Please wait 10 minutes before trying again. This helps us prevent spam and protect your account.`,
+  }),
+  standardHeaders: true, // Adds `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers (recommended)
 });
 app.use('/app/auth/login', authLimiter);
 app.use('/app/auth/send-otp', authLimiter);

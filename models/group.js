@@ -29,12 +29,17 @@ const joinRequestSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    updatedAt: Date,
     name: String,
     department: String,
     level: String,
     avatar: String,
     matricNumber: String,
-    status: { type: String, default: 'pending' },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
   },
   { _id: false }
 );
@@ -167,6 +172,37 @@ const groupSchema = new mongoose.Schema(
         message: 'Duplicate member IDs are not allowed.',
       },
     },
+    mediaUploads: [
+      {
+        _id: false,
+        scheduleId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Schedule',
+          required: false, // Allow general uploads too
+        },
+        fileType: {
+          type: String,
+          enum: ['pdf', 'video', 'image', 'link', 'audio', 'doc'],
+          required: true,
+        },
+        src: { type: String, required: true },
+        name: { type: String, required: true },
+        uploadedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
+        approved: { type: Boolean, default: false },
+        cloudinaryId: { type: String },
+        resourceType: {
+          type: String,
+          enum: ['image', 'video', 'raw'],
+          required: true,
+        },
+        dateAdded: { type: String, required: true }, // '2025-06-27'
+        timeAdded: { type: String, required: true }, // '09:30 AM'
+      },
+    ],
     isArchived: {
       type: Boolean,
       default: false,
