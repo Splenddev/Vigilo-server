@@ -1,50 +1,82 @@
 import User from '../models/userModel.js';
-import { createClassRep } from '../utils/createClassRep.js';
-import { createStudent } from '../utils/createStudent.js';
+import { createClassRep } from '../services/createClassRep.js';
+import { createStudent } from '../services/createStudent.js';
 import { createToken } from '../utils/createToken.js';
 import bcrypt from 'bcryptjs';
 import { generateOtp } from '../utils/generateOtp.js';
 import { sendOtpEmail } from '../utils/sendOtp.js';
+import { errorResponse } from '../utils/errorResponses.js';
 
 export const register = async (req, res) => {
-  const { role, ...userData } = req.body;
+  const { role, courses, ...userData } = req.body;
   const profilePicture = req.file?.path || '';
+  const normalizedRole = role?.toLowerCase();
+
+  let parsedCourses = [];
 
   if (!role) {
-    return res.status(400).json({ message: 'Role is required.' });
+    return errorResponse(res, 'MISSING_ROLE', 'Role is required.', 400);
   }
 
-  const normalizedRole = role.toLowerCase();
+  if (typeof courses === 'string') {
+    try {
+      parsedCourses = JSON.parse(courses);
+    } catch {
+      return errorResponse(
+        res,
+        'INVALID_COURSES_JSON',
+        'Invalid courses format passed.',
+        400
+      );
+    }
+  }
 
   try {
-    // Optional duplicate check
     const existing = await User.findOne({
       $or: [{ email: userData.email }, { username: userData.username }],
     });
+
     if (existing) {
-      return res
-        .status(400)
-        .json({ message: 'Email or username already in use.' });
+      return errorResponse(
+        res,
+        'DUPLICATE_USER',
+        'Email or username already in use.',
+        400
+      );
     }
 
     let user;
+
     if (normalizedRole === 'student') {
       user = await createStudent(userData, profilePicture);
     } else if (normalizedRole === 'class-rep') {
-      user = await createClassRep(userData, profilePicture);
+      if (!parsedCourses || parsedCourses.length < 3) {
+        return errorResponse(
+          res,
+          'MIN_COURSE_REQUIREMENT',
+          'Class reps must add at least 3 valid courses.',
+          400
+        );
+      }
+      user = await createClassRep(userData, profilePicture, parsedCourses);
     } else {
-      return res.status(400).json({ message: 'Invalid role provided.' });
+      return errorResponse(res, 'INVALID_ROLE', 'Invalid role provided.', 400);
     }
 
     await createToken(user._id, res);
 
-    res.status(201).json({
+    return res.status(201).json({
       message: `${normalizedRole === 'student' ? 'Student' : 'ClassRep'} account created`,
       success: true,
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message || 'Server error' });
+    return errorResponse(
+      res,
+      err.code || 'REGISTRATION_FAILED',
+      err.message || 'Registration failed.',
+      err.status || 400
+    );
   }
 };
 
@@ -107,7 +139,7 @@ export const logoutUser = (req, res) => {
     sameSite: 'none',
   });
 
-  res.status(200).json({ message: 'Logged out successfully' });
+  res.status(200).json({ success: true, message: 'Logged out successfully' });
 };
 
 export const sendOtp = async (req, res) => {
@@ -125,7 +157,7 @@ export const sendOtp = async (req, res) => {
 
     user.verifyOtp = otp;
     user.verifyOtpExpirationTime = expiration;
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     const emailResult = await sendOtpEmail({
       to: user.email,
@@ -146,6 +178,7 @@ export const sendOtp = async (req, res) => {
     res.json({ success: true, message: 'OTP sent successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+    console.log(err);
   }
 };
 

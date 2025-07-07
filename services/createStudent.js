@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import Student from '../models/students.js';
-import { SALT_ROUNDS } from './constants.js';
+import { SALT_ROUNDS } from '../utils/constants.js';
 
 export const createStudent = async (data, profilePicture) => {
   const {

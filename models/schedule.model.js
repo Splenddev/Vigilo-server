@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // File extension validation map
 const allowedExtensionsMap = {
   doc: ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'],
-  image: ['.png', '.jpeg', '.webp'],
+  image: ['.png', '.jpeg', '.webp', '.jpg'],
   video: ['.mp4', '.webm', '.avi'],
   audio: ['.mp3', '.aac', '.wav', '.wma'],
   link: [], // no extensions
@@ -127,7 +127,7 @@ const scheduleSchema = new mongoose.Schema(
 
     // Optional Add-ons
     notes: { type: String },
-    repeat: {
+    repeatPattern: {
       type: String,
       enum: ['once', 'weekly', 'bi-weekly', 'monthly'],
       default: 'weekly',

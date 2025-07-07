@@ -1,3 +1,4 @@
+//schedule.controller.js
 import mongoose from 'mongoose';
 import {
   detectConflicts,

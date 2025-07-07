@@ -34,14 +34,6 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ['class-rep', 'student'], required: true },
 
     isNewUser: { type: Boolean, default: true },
-
-    courses: [
-      {
-        courseCode: { type: String, required: true },
-        courseTitle: { type: String },
-        unit: { type: Number },
-      },
-    ],
   },
   {
     discriminatorKey: 'role',

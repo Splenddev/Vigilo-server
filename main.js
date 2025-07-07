@@ -11,6 +11,8 @@ import userRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/group.routes.js';
 import scheduleRoutes from './routes/schedule.routes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
+import attendanceRoutes from './routes/attendance.routes.js';
+import courseRouter from './routes/course.routes.js';
 
 dotenv.config();
 const app = express();
@@ -54,6 +56,8 @@ app.use('/app/auth/send-otp', authLimiter);
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
 app.use('/app/schedule', scheduleRoutes);
+app.use('/app/attendance', attendanceRoutes);
+app.use('/app/courses', courseRouter);
 
 app.get('/', (req, res) => {
   res.send('API is live 🌐');
