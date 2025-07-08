@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Attendance from '../models/attendance.model.js';
 import Group from '../models/group.js';
 import scheduleModel from '../models/schedule.model.js';
@@ -199,5 +200,155 @@ export const getGroupAttendances = async (req, res) => {
     res
       .status(500)
       .json({ message: 'Failed to fetch attendances.', error: error.message });
+  }
+};
+
+export const getGroupAttendanceTab = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_GROUP_ID',
+        message: 'The provided groupId is not a valid MongoDB ObjectId.',
+      });
+    }
+
+    const attendances = await Attendance.find({ groupId }).sort({
+      classDate: -1,
+    });
+
+    if (!attendances.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          groupId,
+          summary: {},
+          recentSessions: [],
+          topAbsentees: [],
+          pleaRequests: [],
+          exportOptions: { available: false },
+          actions: {},
+        },
+      });
+    }
+
+    const activeSession = attendances.find((a) => a.status === 'active');
+
+    const totalSessions = attendances.length;
+    const totalMarked = attendances.reduce(
+      (sum, a) =>
+        sum + a.studentRecords.filter((s) => s.status !== 'absent').length,
+      0
+    );
+    const totalStudents = attendances.reduce(
+      (sum, a) => sum + a.studentRecords.length,
+      0
+    );
+    const avgAttendanceRate =
+      totalStudents > 0 ? ((totalMarked / totalStudents) * 100).toFixed(1) : 0;
+
+    const recentSessions = attendances.slice(0, 5).map((a) => ({
+      attendanceId: a.attendanceId,
+      date: a.classDate,
+      topic: a.courseTitle || 'Untitled',
+      marked: a.studentRecords.filter((s) => s.status !== 'absent').length,
+      late: a.summaryStats?.late || 0,
+      absent: a.summaryStats?.absent || 0,
+    }));
+
+    const studentAbsenceMap = {};
+    attendances.forEach((a) => {
+      a.studentRecords.forEach((s) => {
+        const id = s.studentId.toString();
+        if (!studentAbsenceMap[id]) {
+          studentAbsenceMap[id] = {
+            studentId: id,
+            name: s.name,
+            absences: 0,
+            lateMarks: 0,
+            attendanceCount: 0,
+            presentCount: 0,
+          };
+        }
+        if (s.status === 'absent') studentAbsenceMap[id].absences += 1;
+        if (s.status === 'late') studentAbsenceMap[id].lateMarks += 1;
+        if (s.status !== 'absent') studentAbsenceMap[id].presentCount += 1;
+        studentAbsenceMap[id].attendanceCount += 1;
+      });
+    });
+
+    const topAbsentees = Object.values(studentAbsenceMap)
+      .map((s) => ({
+        studentId: s.studentId,
+        name: s.name,
+        absences: s.absences,
+        lateMarks: s.lateMarks,
+        attendanceRate:
+          s.attendanceCount > 0
+            ? ((s.presentCount / s.attendanceCount) * 100).toFixed(1)
+            : 0,
+      }))
+      .filter((s) => s.absences > 0)
+      .sort((a, b) => b.absences - a.absences)
+      .slice(0, 5);
+
+    const pleaRequests = [];
+    attendances.forEach((a) => {
+      a.studentRecords.forEach((s) => {
+        if (s.plea?.status === 'pending') {
+          pleaRequests.push({
+            pleaId: `${a._id}-${s.studentId}`,
+            studentId: s.studentId,
+            name: s.name,
+            date: a.classDate,
+            reason: s.plea.reasons?.[0],
+            proofUrl: s.plea.proofUpload?.fileUrl,
+            status: s.plea.status,
+          });
+        }
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        groupId,
+        summary: {
+          totalSessions,
+          avgAttendanceRate: Number(avgAttendanceRate),
+          totalMarked,
+          totalAbsent: totalStudents - totalMarked,
+          activeSession: activeSession
+            ? {
+                isActive: true,
+                attendanceId: activeSession.attendanceId,
+                startTime: activeSession.classTime?.start,
+                endTime: activeSession.classTime?.end,
+                studentsMarked: activeSession.studentRecords.filter(
+                  (s) => s.status !== 'absent'
+                ).length,
+                studentsAllowed: activeSession.studentRecords.length,
+              }
+            : null,
+        },
+        recentSessions,
+        topAbsentees,
+        pleaRequests,
+        exportOptions: {
+          available: true,
+          formats: ['csv', 'pdf'],
+          downloadLink: `/app/attendance/export/${groupId}`,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('AttendanceTab Error:', err);
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      message: 'Something went wrong while retrieving attendance data.',
+    });
   }
 };
