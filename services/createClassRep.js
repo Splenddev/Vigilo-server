@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { SALT_ROUNDS } from '../utils/constants.js';
 import ClassRep from '../models/classRep.js';
 
-export const createClassRep = async (data) => {
+export const createClassRep = async (data, profilePicture, courses = []) => {
   const {
     name,
     email,
@@ -13,8 +13,6 @@ export const createClassRep = async (data) => {
     faculty,
     level,
     matricNumber,
-    profilePicture,
-    courses = [],
   } = data;
 
   const existing = await ClassRep.findOne({
