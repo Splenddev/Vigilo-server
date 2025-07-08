@@ -17,7 +17,7 @@ async function dropOldIndex() {
     const indexes = await collection.indexes();
     console.log('📜 Current indexes:', indexes);
 
-    const targetIndexName = 'groupId_1_scheduleId_1';
+    const targetIndexName = 'group_1_date_1';
 
     const indexExists = indexes.find((idx) => idx.name === targetIndexName);
     if (indexExists) {

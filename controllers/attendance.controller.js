@@ -114,8 +114,9 @@ export const createAttendance = async (req, res) => {
 
     const studentRecords = group.members.map((s) => ({
       studentId: s._id,
-      name: s.fullName,
+      name: s.name,
       status: 'absent',
+      role: s.role,
     }));
 
     // 7️⃣ Optionally validate schedule
