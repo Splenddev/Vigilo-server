@@ -128,10 +128,10 @@ const attendanceSchema = new mongoose.Schema({
     required: true,
   },
 
-  courseCode: String,
-  courseTitle: String,
+  courseCode: { type: String, required: true },
+  courseTitle: { type: String, required: true },
   lecturer: {
-    name: String,
+    name: { type: String, required: true },
     email: String,
   },
   scheduleRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Schedule' },

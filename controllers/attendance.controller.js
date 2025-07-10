@@ -15,6 +15,9 @@ export const createAttendance = async (req, res) => {
       entry,
       attendanceType,
       markingConfig,
+      courseCode,
+      courseTitle,
+      lecturer,
     } = req.body;
 
     const createdBy = req.user._id;
@@ -90,6 +93,8 @@ export const createAttendance = async (req, res) => {
     // 5️⃣ Prevent duplicate session for same schedule + time
     const existing = await Attendance.findOne({
       scheduleId,
+      courseCode,
+      courseTitle,
       classDate,
       'classTime.start': classTime.start,
     });
@@ -144,6 +149,8 @@ export const createAttendance = async (req, res) => {
       groupId,
       scheduleId,
       classDate,
+      courseCode,
+      courseTitle,
       classTime,
       entry,
       location,
@@ -151,8 +158,8 @@ export const createAttendance = async (req, res) => {
       markingConfig,
       createdBy,
       lecturer: {
-        name: schedule?.lecturer?.name || '',
-        email: schedule?.lecturer?.email || '',
+        name: schedule?.lecturer?.name || lecturer.name,
+        email: schedule?.lecturer?.email || lecturer.name || '',
       },
       studentRecords,
     });
@@ -234,32 +241,46 @@ export const getGroupAttendanceTab = async (req, res) => {
       });
     }
 
+    const now = Date.now();
+
+    // Helper: check if session has closed
+    const isEntryClosed = (attendance) => {
+      const end = new Date(attendance.classTime?.end).getTime();
+      return !isNaN(end) && end <= now;
+    };
+
     const activeSession = attendances.find((a) => a.status === 'active');
 
-    const totalSessions = attendances.length;
-    const totalMarked = attendances.reduce(
+    // Compute totals for summary only from closed sessions
+    const closedAttendances = attendances.filter(isEntryClosed);
+
+    const totalSessions = closedAttendances.length;
+    const totalMarked = closedAttendances.reduce(
       (sum, a) =>
         sum + a.studentRecords.filter((s) => s.status !== 'absent').length,
       0
     );
-    const totalStudents = attendances.reduce(
+    const totalStudents = closedAttendances.reduce(
       (sum, a) => sum + a.studentRecords.length,
       0
     );
     const avgAttendanceRate =
       totalStudents > 0 ? ((totalMarked / totalStudents) * 100).toFixed(1) : 0;
 
-    const recentSessions = attendances.slice(0, 5).map((a) => ({
-      attendanceId: a.attendanceId,
-      date: a.classDate,
-      topic: a.courseTitle || 'Untitled',
-      marked: a.studentRecords.filter((s) => s.status !== 'absent').length,
-      late: a.summaryStats?.late || 0,
-      absent: a.summaryStats?.absent || 0,
-    }));
+    const recentSessions = attendances.slice(0, 5).map((a) => {
+      const entryClosed = isEntryClosed(a);
+      return {
+        attendanceId: a.attendanceId,
+        date: a.classDate,
+        topic: a.courseTitle || 'Untitled',
+        marked: a.studentRecords.filter((s) => s.status !== 'absent').length,
+        late: entryClosed ? a.summaryStats?.late || 0 : 0,
+        absent: entryClosed ? a.summaryStats?.absent || 0 : 0,
+      };
+    });
 
     const studentAbsenceMap = {};
-    attendances.forEach((a) => {
+    closedAttendances.forEach((a) => {
       a.studentRecords.forEach((s) => {
         const id = s.studentId.toString();
         if (!studentAbsenceMap[id]) {
@@ -295,7 +316,7 @@ export const getGroupAttendanceTab = async (req, res) => {
       .slice(0, 5);
 
     const pleaRequests = [];
-    attendances.forEach((a) => {
+    closedAttendances.forEach((a) => {
       a.studentRecords.forEach((s) => {
         if (s.plea?.status === 'pending') {
           pleaRequests.push({

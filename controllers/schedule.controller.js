@@ -80,7 +80,6 @@ export const getSchedulesByGroup = async (req, res, next) => {
 
     const schedules = await findQuery.lean().exec();
 
-    // 4️⃣ Respond
     return res.status(200).json({
       message: `Found ${schedules.length} schedule(s) for group ${groupId}`,
       data: schedules,
