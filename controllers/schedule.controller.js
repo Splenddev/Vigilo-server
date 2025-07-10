@@ -2,6 +2,7 @@
 import mongoose from 'mongoose';
 import {
   detectConflicts,
+  detectCourseConflicts,
   normalisePayload,
   validateClassType,
   validateLeadTime,
@@ -24,6 +25,7 @@ export const createSchedule = async (req, res, next) => {
     validateClassType(payload);
     validateLeadTime(payload);
     await detectConflicts(payload);
+    await detectCourseConflicts(payload);
 
     const doc = await scheduleModel.create(payload);
 

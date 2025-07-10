@@ -112,3 +112,20 @@ export const detectConflicts = async ({ groupId, classDaysTimes }) => {
     }
   }
 };
+
+export const detectCourseConflicts = async (payload) => {
+  const { groupId, courseTitle, courseCode, creditUnit } = payload;
+  const match = await scheduleModel.findOne({
+    groupId,
+    courseCode,
+    courseTitle,
+    creditUnit,
+  });
+
+  if (match) {
+    throw createHttpError(
+      409,
+      `Conflict: "${courseTitle} (${courseCode})" already has a schedule.`
+    );
+  }
+};
