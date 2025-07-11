@@ -3,6 +3,8 @@ import Attendance from '../models/attendance.model.js';
 import Group from '../models/group.js';
 import scheduleModel from '../models/schedule.model.js';
 import { generateAttendanceId } from '../utils/idGenerator.js';
+import createHttpError from 'http-errors';
+import { validateGeoProximity } from '../utils/geoUtils.js';
 
 export const createAttendance = async (req, res) => {
   try {
@@ -55,6 +57,15 @@ export const createAttendance = async (req, res) => {
     // 3️⃣ Validate entry time window
     if (entry?.start && entry?.end) {
       const toMinutes = (str) => {
+        if (str === 'FULL') {
+          const [startH, startM] = classTime.start.split(':').map(Number);
+          const [endH, endM] = classTime.end.split(':').map(Number);
+          const start = new Date(0, 0, 0, startH, startM);
+          const end = new Date(0, 0, 0, endH, endM);
+          const diffMins = Math.floor((end - start) / (1000 * 60));
+          return diffMins;
+        }
+
         const match = str.match(/(\d+)H(\d+)M/);
         if (!match) return null;
         return parseInt(match[1]) * 60 + parseInt(match[2]);
@@ -68,11 +79,13 @@ export const createAttendance = async (req, res) => {
         entryEndMins === null ||
         entryEndMins <= entryStartMins
       ) {
-        return res.status(400).json({
-          success: false,
-          code: 'INVALID_ENTRY_WINDOW',
-          message: 'Marking end must be after start, in valid H and M format.',
-        });
+        throw createHttpError(
+          400,
+          'Marking end must be after start, in valid H and M format.',
+          {
+            code: 'INVALID_ENTRY_WINDOW',
+          }
+        );
       }
     }
 
@@ -100,12 +113,14 @@ export const createAttendance = async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({
-        success: false,
-        code: 'ATTENDANCE_EXISTS',
-        message: `Attendance already exists for this schedule on ${classDate} at ${classTime.start}.`,
-        attendanceId: existing.attendanceId,
-      });
+      throw createHttpError(
+        409,
+        'Attendance already exists for this schedule on 2025-07-11 at 08:00.',
+        {
+          code: 'ATTENDANCE_EXISTS',
+          attendanceId: 'att_123456',
+        }
+      );
     }
 
     // 6️⃣ Fetch group
@@ -370,6 +385,163 @@ export const getGroupAttendanceTab = async (req, res) => {
       success: false,
       code: 'SERVER_ERROR',
       message: 'Something went wrong while retrieving attendance data.',
+    });
+  }
+};
+
+export const markGeoAttendanceEntry = async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    const userId = req.user._id;
+    const {
+      method = 'geo',
+      time = new Date(),
+      location = {},
+      mode = 'checkIn',
+    } = req.body;
+
+    const attendance = await Attendance.findById(attendanceId);
+    if (!attendance) {
+      throw createHttpError(404, 'Attendance session not found.', {
+        code: 'ATTENDANCE_NOT_FOUND',
+      });
+    }
+
+    if (attendance.status !== 'active') {
+      throw createHttpError(403, 'Attendance is closed.', {
+        code: 'ATTENDANCE_CLOSED',
+      });
+    }
+
+    const studentRecord = attendance.studentRecords.find((r) =>
+      r.studentId.equals(userId)
+    );
+
+    if (!studentRecord) {
+      throw createHttpError(403, 'You are not in the allowed student list.', {
+        code: 'NOT_ALLOWED_TO_MARK',
+      });
+    }
+
+    const markTime = new Date(time);
+    const classStart = new Date(
+      `${attendance.classDate}T${attendance.classTime.start}`
+    );
+    const classEnd = new Date(
+      `${attendance.classDate}T${attendance.classTime.end}`
+    );
+
+    let wasWithinRange = true;
+    let distanceFromClassMeters = null;
+
+    if (
+      method === 'geo' &&
+      attendance.location?.latitude &&
+      location.latitude
+    ) {
+      const { distanceMeters, isWithinRange } = validateGeoProximity(
+        location,
+        attendance.location
+      );
+      wasWithinRange = isWithinRange;
+      distanceFromClassMeters = distanceMeters;
+    }
+
+    if (mode === 'checkIn') {
+      if (studentRecord.checkIn?.time) {
+        throw createHttpError(409, 'You have already marked check-in.', {
+          code: 'ALREADY_CHECKED_IN',
+          checkInTime: studentRecord.checkIn.time,
+        });
+      }
+
+      const arrivalDeltaMinutes = Math.floor((markTime - classStart) / 60000);
+
+      studentRecord.checkIn = {
+        time: markTime,
+        method,
+        location,
+        distanceFromClassMeters,
+      };
+      studentRecord.arrivalDeltaMinutes = arrivalDeltaMinutes;
+      studentRecord.wasWithinRange = wasWithinRange;
+      studentRecord.checkInVerified = method === 'geo' ? wasWithinRange : false;
+      studentRecord.status = arrivalDeltaMinutes <= 0 ? 'on_time' : 'late';
+      studentRecord.markedBy = 'student';
+
+      attendance.summaryStats.totalPresent += 1;
+      if (studentRecord.status === 'on_time')
+        attendance.summaryStats.onTime += 1;
+      if (studentRecord.status === 'late') attendance.summaryStats.late += 1;
+
+      await attendance.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Check-in successful.',
+        checkInTime: markTime,
+        arrivalDeltaMinutes,
+        distanceFromClassMeters,
+        wasWithinRange,
+        status: studentRecord.status,
+      });
+    }
+
+    if (mode === 'checkOut') {
+      if (!studentRecord.checkIn?.time) {
+        throw createHttpError(403, 'You must check in before checking out.', {
+          code: 'CHECK_IN_REQUIRED',
+        });
+      }
+
+      if (studentRecord.checkOut?.time) {
+        throw createHttpError(409, 'You have already marked check-out.', {
+          code: 'ALREADY_CHECKED_OUT',
+          checkOutTime: studentRecord.checkOut.time,
+        });
+      }
+
+      const departureDeltaMinutes = Math.floor((classEnd - markTime) / 60000);
+      const durationMinutes = Math.floor(
+        (markTime - new Date(studentRecord.checkIn.time)) / 60000
+      );
+
+      studentRecord.checkOut = {
+        time: markTime,
+        method,
+        location,
+        distanceFromClassMeters,
+      };
+      studentRecord.departureDeltaMinutes = departureDeltaMinutes;
+      studentRecord.durationMinutes = durationMinutes;
+
+      if (departureDeltaMinutes > 10) {
+        studentRecord.status = 'left_early';
+        attendance.summaryStats.leftEarly += 1;
+      }
+
+      await attendance.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Check-out successful.',
+        checkOutTime: markTime,
+        durationMinutes,
+        departureDeltaMinutes,
+        distanceFromClassMeters,
+        status: studentRecord.status,
+      });
+    }
+
+    throw createHttpError(400, 'Invalid marking mode.', {
+      code: 'INVALID_MARK_MODE',
+    });
+  } catch (err) {
+    console.error('Mark entry error:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      code: err.code || 'SERVER_ERROR',
+      message: err.message || 'Something went wrong during marking.',
     });
   }
 };

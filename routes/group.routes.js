@@ -8,6 +8,7 @@ import {
   createGroup,
   findGroupById,
   joinGroup,
+  leaveGroup,
   rejectJoinRequest,
   searchGroup,
 } from '../controllers/group.controller.js';
@@ -28,5 +29,6 @@ groupRoutes.post('/:groupId/join', joinGroup);
 groupRoutes.delete('/:groupId/join', cancelJoinRequest);
 groupRoutes.patch('/:groupId/approve-request/:studentId', approveJoinRequest);
 groupRoutes.patch('/:groupId/reject-request/:studentId', rejectJoinRequest);
+groupRoutes.post('/leave', leaveGroup);
 
 export default groupRoutes;

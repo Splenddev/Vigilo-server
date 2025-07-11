@@ -11,9 +11,18 @@ export const errorHandler = (err, req, res, next) => {
   });
 
   // 📤 Send JSON response
-  res.status(statusCode).json({
-    message: err.message || 'Internal Server Error',
-    status: statusCode,
+  const response = {
+    success: false,
+    code: err.code || 'INTERNAL_ERROR',
+    message: err.message || 'Something went wrong.',
     ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
-  });
+  };
+
+  for (const key in err) {
+    if (!(key in response)) {
+      response[key] = err[key];
+    }
+  }
+
+  res.status(statusCode).json(response);
 };

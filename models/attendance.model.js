@@ -69,6 +69,7 @@ const studentRecordSchema = new mongoose.Schema(
             'geo_disabled',
             'outside_marking_window',
             'other',
+            'joined_after_attendance_created',
           ],
         },
       ],

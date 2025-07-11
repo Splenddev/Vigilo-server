@@ -2,6 +2,7 @@ import Group from '../models/group.js';
 import User from '../models/userModel.js';
 import Schedule from '../models/schedule.model.js';
 import Attendance from '../models/attendance.model.js';
+import { sendNotification } from '../utils/sendNotification.js';
 
 export const createGroup = async (req, res) => {
   try {
@@ -142,6 +143,7 @@ export const findGroupById = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
 export const searchGroup = async (req, res) => {
   const { query, faculty, department, level, sortOrder = 'asc' } = req.query;
   const filters = { isArchived: false };
@@ -202,14 +204,13 @@ export const joinGroup = async (req, res) => {
   const { _id: userId, name, department, level, profilePicture } = user;
 
   try {
-    const group = await Group.findById(groupId);
+    const group = await Group.findById(groupId).populate('createdBy');
     if (!group) {
       return res
         .status(404)
         .json({ success: false, message: 'Group not found' });
     }
 
-    // Prevent duplicate members
     const isMember = group.members.some(
       (member) => member.user && member.user.equals(userId)
     );
@@ -220,23 +221,15 @@ export const joinGroup = async (req, res) => {
       });
     }
 
-    // Check for existing join request
     const existingRequest = group.joinRequests.find((jr) =>
       jr.user.equals(userId)
     );
 
     if (existingRequest) {
-      if (existingRequest.status === 'pending') {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Join request already sent.' });
-      } else {
-        // If user was previously rejected or approved, you may allow resending
-        return res.status(400).json({
-          success: false,
-          message: `You already submitted a request with status: ${existingRequest.status}.`,
-        });
-      }
+      return res.status(400).json({
+        success: false,
+        message: `Join request already sent with status: ${existingRequest.status}.`,
+      });
     }
 
     // Create new join request
@@ -253,6 +246,24 @@ export const joinGroup = async (req, res) => {
 
     user.requestedJoinGroup = groupId;
     await user.save();
+
+    // 🔔 Notify the Class Rep via notification + socket
+    const classRep = group.createdBy;
+
+    await sendNotification({
+      type: 'approval',
+      message: `${name} requested to join your group.`,
+      forUser: classRep._id,
+      fromUser: userId,
+      groupId: group._id,
+      relatedId: group._id,
+      relatedType: 'group',
+      actionApprove: 'approveJoinRequest',
+      actionDeny: 'denyJoinRequest',
+      image: profilePicture,
+      link: `/group/${group._id}/requests`,
+      io: req.io, // 👈 Important: socket push
+    });
 
     return res.status(200).json({
       success: true,
@@ -271,9 +282,14 @@ export const joinGroup = async (req, res) => {
 export const cancelJoinRequest = async (req, res) => {
   const { groupId } = req.params;
   const userId = req.user._id;
+  const io = req.io;
 
   try {
-    const group = await Group.findById(groupId);
+    const group = await Group.findById(groupId).populate(
+      'createdBy',
+      'name _id profilePicture'
+    );
+
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
     const beforeCount = group.joinRequests.length;
@@ -286,6 +302,33 @@ export const cancelJoinRequest = async (req, res) => {
     }
 
     await group.save();
+
+    // Notify Class Rep
+    if (group.createdBy?._id) {
+      await sendNotification({
+        type: 'info',
+        message: `A student canceled their join request to your group.`,
+        forUser: group.createdBy._id,
+        fromUser: userId,
+        groupId,
+        relatedType: 'joinRequest',
+        relatedId: groupId,
+        image: group.createdBy.profilePicture || null,
+        io,
+      });
+    }
+
+    // Notify the Student (self-confirmation)
+    await sendNotification({
+      type: 'info',
+      message: `Your join request to "${group.name}" has been canceled.`,
+      forUser: userId,
+      groupId,
+      relatedType: 'joinRequest',
+      relatedId: groupId,
+      io,
+    });
+
     res.json({ success: true, message: 'Join request canceled' });
   } catch (err) {
     console.error('cancelJoinRequest error:', err);
@@ -351,22 +394,56 @@ export const approveJoinRequest = async (req, res) => {
     });
 
     // ✅ Update join request status
-    group.joinRequests[requestIndex].status = 'approved';
-    group.joinRequests[requestIndex].updatedAt = new Date();
+    request.status = 'approved';
+    request.updatedAt = new Date();
 
     await group.save();
 
     // Update student's group reference
     const student = await User.findById(studentId);
-    console.log(student);
     if (!student) {
       return res.status(404).json({
         success: false,
         message: 'Student not found. Please check the group ID.',
       });
     }
+
     student.group = groupId;
     await student.save();
+
+    // ✅ Add student to today's attendance session (if active)
+    const today = new Date().toISOString().split('T')[0];
+
+    const activeAttendance = await Attendance.findOne({
+      groupId,
+      classDate: today,
+      status: 'active',
+    });
+
+    if (activeAttendance) {
+      const exists = activeAttendance.studentRecords.some(
+        (r) => r.studentId.toString() === studentId
+      );
+
+      if (!exists) {
+        activeAttendance.studentRecords.push({
+          studentId: student._id,
+          name: student.name,
+          status: 'absent', // default
+          flagged: {
+            isFlagged: true,
+            reasons: ['joined_after_attendance_created'],
+            note: 'Student joined group after attendance session was created.',
+            flaggedAt: new Date(),
+            flaggedBy: repUser._id,
+          },
+          joinedAfterAttendanceCreated: true, // 🆕 Custom flag
+        });
+
+        await activeAttendance.save();
+        console.log(`[✅] Student added to active attendance for ${today}`);
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -374,6 +451,7 @@ export const approveJoinRequest = async (req, res) => {
       memberId: request.user,
     });
   } catch (err) {
+    console.error('approveJoinRequest error:', err);
     return res.status(500).json({
       success: false,
       message: 'An error occurred while approving the join request.',
@@ -429,6 +507,159 @@ export const rejectJoinRequest = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'An error occurred while rejecting the join request.',
+      error: err.message,
+    });
+  }
+};
+
+// export const leaveGroup = async (req, res) => {
+//   const user = req.user;
+
+//   if (!user) {
+//     return res.status(401).json({
+//       success: false,
+//       message: 'Unauthorized. User not found.',
+//     });
+//   }
+
+//   const { group: groupId } = user;
+
+//   if (!groupId) {
+//     return res.status(400).json({
+//       success: false,
+//       message: 'You are not part of any group.',
+//     });
+//   }
+
+//   try {
+//     const group = await Group.findById(groupId);
+//     if (!group) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Group not found.',
+//       });
+//     }
+
+//     // Remove from group members
+//     group.members = group.members.filter(
+//       (member) => member._id.toString() !== user._id.toString()
+//     );
+
+//     // Remove pending join requests (if any)
+//     group.joinRequests = group.joinRequests.filter(
+//       (r) => r.user.toString() !== user._id.toString()
+//     );
+
+//     await group.save();
+
+//     // Unassign user group
+//     user.group = null;
+//     user.requestedJoinGroup = null;
+//     await user.save();
+
+//     // 🔥 Remove from today's active attendance (if any)
+//     const today = new Date().toISOString().split('T')[0];
+//     const activeAttendance = await Attendance.findOne({
+//       groupId,
+//       classDate: today,
+//       status: 'active',
+//     });
+
+//     if (activeAttendance) {
+//       const index = activeAttendance.studentRecords.findIndex((r) =>
+//         r.studentId.equals(user._id)
+//       );
+
+//       if (index !== -1) {
+//         activeAttendance.studentRecords.splice(index, 1);
+//         await activeAttendance.save();
+//       }
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: 'You have successfully left the group.',
+//     });
+//   } catch (err) {
+//     console.error('leaveGroup error:', err);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'An error occurred while leaving the group.',
+//       error: err.message,
+//     });
+//   }
+// };
+
+export const leaveGroup = async (req, res) => {
+  const user = req.user;
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized. User not found.',
+    });
+  }
+
+  const { group: groupId } = user;
+
+  if (!groupId) {
+    return res.status(400).json({
+      success: false,
+      message: 'You are not part of any group.',
+    });
+  }
+
+  try {
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found.',
+      });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const activeAttendance = await Attendance.findOne({
+      groupId,
+      classDate: today,
+      status: 'active',
+    });
+
+    // 🚫 Protection: Prevent leaving during an active session
+    if (activeAttendance) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You cannot leave the group while a class attendance session is active. Try again later.',
+      });
+    }
+
+    // ✅ Remove from members
+    group.members = group.members.filter(
+      (member) => member._id.toString() !== user._id.toString()
+    );
+
+    // ✅ Remove any pending join request
+    group.joinRequests = group.joinRequests.filter(
+      (r) => r.user.toString() !== user._id.toString()
+    );
+
+    await group.save();
+
+    // ✅ Reset user group fields
+    user.group = null;
+    user.requestedJoinGroup = null;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'You have successfully left the group.',
+    });
+  } catch (err) {
+    console.error('leaveGroup error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while leaving the group.',
       error: err.message,
     });
   }
