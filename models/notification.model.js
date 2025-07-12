@@ -86,6 +86,10 @@ const notificationSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isArchived: {
+    type: Boolean,
+    default: false,
+  },
 
   targetRole: {
     type: String, // 'student', 'class_rep', 'all'
