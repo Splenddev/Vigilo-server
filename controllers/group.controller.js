@@ -547,6 +547,12 @@ export const approveJoinRequest = async (req, res) => {
 
     io.to(student._id.toString()).emit('user:refresh');
 
+    io.to(repUser._id.toString()).emit('group:update', {
+      groupId: group._id,
+      action: 'member-approved',
+      updatedBy: student._id,
+    });
+
     return res.status(200).json({
       success: true,
       message: `${request.name} has been approved and added to the group.`,
