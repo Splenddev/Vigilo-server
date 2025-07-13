@@ -223,6 +223,14 @@ export const joinGroup = async (req, res) => {
       });
     }
 
+    const hasGroup = user.group;
+    if (hasGroup) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already a member of another group.',
+      });
+    }
+
     const existingRequest = group.joinRequests.find((jr) =>
       jr.user.equals(userId)
     );
@@ -431,7 +439,7 @@ export const approveJoinRequest = async (req, res) => {
       });
     }
 
-    // Add student to group members
+    // Add to members list
     group.members.push({
       _id: request.user,
       name: request.name,
@@ -448,7 +456,7 @@ export const approveJoinRequest = async (req, res) => {
     request.updatedAt = new Date();
     await group.save();
 
-    // Update student's group reference
+    // Update user's group
     const student = await User.findById(studentId);
     if (!student) {
       return res.status(404).json({
@@ -460,9 +468,8 @@ export const approveJoinRequest = async (req, res) => {
     student.group = groupId;
     await student.save();
 
-    // Add student to today's attendance (if any)
+    // Add to active attendance
     const today = new Date().toISOString().split('T')[0];
-
     const activeAttendance = await Attendance.findOne({
       groupId,
       classDate: today,
@@ -506,19 +513,39 @@ export const approveJoinRequest = async (req, res) => {
       io,
     });
 
-    // ✅ Archive old related notifications
+    // ✅ Notify the rep as confirmation
+    await sendNotification({
+      type: 'info',
+      forUser: repUser._id,
+      fromUser: student._id,
+      message: `You approved ${request.name}'s join request.`,
+      groupId,
+      relatedType: 'group',
+      relatedId: group._id,
+      io,
+    });
+
+    // ✅ Archive and clean old approval notifications
     await Notification.updateMany(
       {
-        for: student._id,
-        from: repUser._id,
+        from: student._id,
+        for: repUser._id,
         groupId,
         type: 'approval',
         relatedType: 'group',
         relatedId: group._id,
         isArchived: false,
       },
-      { $set: { isArchived: true } }
+      {
+        $set: {
+          isArchived: true,
+          actionApprove: null,
+          actionDeny: null,
+        },
+      }
     );
+
+    io.to(student._id.toString()).emit('user:refresh');
 
     return res.status(200).json({
       success: true,
