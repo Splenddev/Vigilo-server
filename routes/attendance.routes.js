@@ -8,6 +8,7 @@ import {
   getGroupAttendances,
   getGroupAttendanceTab,
   markGeoAttendanceEntry,
+  reopenAttendanceSession,
 } from '../controllers/attendance.controller.js';
 
 const attendanceRoutes = express.Router();
@@ -20,12 +21,13 @@ attendanceRoutes.get('/group-tab/:groupId/', getGroupAttendanceTab);
 attendanceRoutes.post('/mark-entry/:attendanceId', markGeoAttendanceEntry);
 attendanceRoutes.post(
   '/finalize/:attendanceId',
-  (req, res, next) => {
-    console.log('✅ finalize route hit:', req.params.attendanceId);
-    next();
-  },
   allowClassRepsOnly,
   finalizeSingleAttendance
+);
+attendanceRoutes.post(
+  '/re-open/:attendanceId',
+  allowClassRepsOnly,
+  reopenAttendanceSession
 );
 attendanceRoutes.delete('/:attendanceId', allowClassRepsOnly, deleteAttendance);
 

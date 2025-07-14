@@ -130,7 +130,7 @@ export const createAttendance = async (req, res) => {
           forUser: userId,
           fromUser: createdBy,
           type: 'attendance',
-          message: `New attendance session opened: ${courseCode} - ${courseTitle} at ${classTime.start}`,
+          message: `🎓 Attendance is now open for ${courseTitle} (${courseCode}) on ${classDate}, ${classTime.start} – ${classTime.end}. Mark in before the deadline!`,
           relatedId: newAttendance._id,
           relatedType: 'attendance',
           groupId,
@@ -588,9 +588,18 @@ export const markGeoAttendanceEntry = async (req, res) => {
 export const finalizeSingleAttendance = async (req, res) => {
   try {
     const { attendanceId } = req.params;
-    const { io } = req; // make sure to inject io
+    const { io } = req;
 
-    const session = await Attendance.findById(attendanceId);
+    if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_ID',
+        message: 'Invalid attendance ID.',
+      });
+    }
+
+    const session =
+      await Attendance.findById(attendanceId).populate('studentRecords');
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -607,66 +616,70 @@ export const finalizeSingleAttendance = async (req, res) => {
       });
     }
 
-    if (session.status !== 'active') {
-      return res.status(400).json({
-        success: false,
-        code: 'ALREADY_CLOSED',
-        message: 'This session has already been finalized.',
-      });
-    }
-
     const classEnd = new Date(`${session.classDate}T${session.classTime.end}`);
-    if (classEnd > new Date()) {
+    const now = new Date();
+    if (classEnd > now) {
       return res.status(400).json({
         success: false,
         code: 'CLASS_NOT_ENDED',
         message: 'You cannot finalize attendance before class ends.',
         classEnd,
-        currentTime: new Date(),
+        currentTime: now,
       });
     }
 
+    // Update student attendance records
     let absents = 0;
-    let pleas = 0;
+    let withPlea = 0;
+    let onTime = 0;
+    let late = 0;
+    let leftEarly = 0;
+    let totalPresent = 0;
 
-    session.studentRecords = session.studentRecords.map((s) => {
-      if (!s.status || s.status === 'absent') {
+    for (const record of session.studentRecords) {
+      if (!record.status || record.status === 'absent') {
         absents++;
-        s.status = 'absent';
+        await StudentAttendance.findByIdAndUpdate(record._id, {
+          status: 'absent',
+        });
+      } else {
+        totalPresent++;
+        if (record.status === 'on_time') onTime++;
+        else if (record.status === 'late') late++;
+        else if (record.status === 'left_early') leftEarly++;
       }
-      if (s.plea?.status === 'pending' || s.plea?.reasons?.length > 0) {
-        pleas++;
+
+      if (
+        record.plea?.status === 'pending' ||
+        record.plea?.reasons?.length > 0
+      ) {
+        withPlea++;
       }
-      return s;
-    });
+    }
 
-    const stats = {
-      totalPresent: session.studentRecords.filter((s) => s.status !== 'absent')
-        .length,
-      onTime: session.studentRecords.filter((s) => s.status === 'on_time')
-        .length,
-      late: session.studentRecords.filter((s) => s.status === 'late').length,
-      leftEarly: session.studentRecords.filter((s) => s.status === 'left_early')
-        .length,
-      absent: absents,
-      withPlea: pleas,
-    };
-
-    session.summaryStats = stats;
     session.status = 'closed';
+    session.summaryStats = {
+      totalPresent,
+      onTime,
+      late,
+      leftEarly,
+      absent: absents,
+      withPlea,
+    };
     await session.save();
 
+    // Notify class rep
     const group = await Group.findById(session.groupId);
-    const classRepId = group?.classRep;
+    const classRepId = group?.createdBy || group?.classRep;
 
-    if (classRepId && io) {
+    if (classRepId) {
       await sendNotification({
         type: 'info',
-        message: `✅ Session finalized for ${session.classDate}. ${absents} absent, ${stats.totalPresent} marked present.`,
+        message: `📘 Attendance finalized for ${session.courseTitle || 'a course'} on ${session.classDate}. ${absents} absent, ${totalPresent} present.`,
         forUser: classRepId,
+        groupId: session.groupId,
         relatedId: session._id,
         relatedType: 'attendance',
-        groupId: session.groupId,
         io,
       });
     }
@@ -675,10 +688,10 @@ export const finalizeSingleAttendance = async (req, res) => {
       success: true,
       message: 'Attendance session finalized.',
       attendanceId: session.attendanceId,
-      stats,
+      stats: session.summaryStats,
     });
   } catch (err) {
-    console.error('Manual finalize error:', err);
+    console.error('❌ Finalize attendance error:', err);
     return res.status(500).json({
       success: false,
       code: 'FINALIZE_ERROR',
@@ -711,7 +724,6 @@ export const deleteAttendance = async (req, res) => {
       });
     }
 
-    // Optional: Check if it's allowed to delete (e.g., only closed ones)
     if (attendance.status === 'active') {
       return res.status(403).json({
         success: false,
@@ -738,6 +750,88 @@ export const deleteAttendance = async (req, res) => {
       success: false,
       code: 'SERVER_ERROR',
       message: 'Something went wrong while deleting the attendance session.',
+    });
+  }
+};
+
+export const reopenAttendanceSession = async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    const { io } = req;
+
+    if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_ATTENDANCE_ID',
+        message: 'Invalid attendance ID provided.',
+      });
+    }
+
+    const session = await Attendance.findById(attendanceId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        message: 'Attendance session not found.',
+      });
+    }
+
+    if (session.status === 'active') {
+      return res.status(400).json({
+        success: false,
+        code: 'ALREADY_ACTIVE',
+        message: 'This attendance session is already active.',
+      });
+    }
+
+    // Optional: disallow reopening sessions older than X days (e.g. audit control)
+    const classDate = new Date(session.classDate);
+    const daysSince =
+      (Date.now() - classDate.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince > 5)
+      return res.status(403).json({
+        success: false,
+        code: 'OLD_SESSION',
+        message: 'Cannot reopen old sessions.',
+      });
+
+    session.status = 'active';
+    await session.save();
+
+    const group = await Group.findById(session.groupId);
+    const classRepId = group?.createdBy || group?.classRep;
+
+    if (classRepId) {
+      await sendNotification({
+        type: 'info',
+        message: `🔄 Attendance reopened for ${session.courseCode} - ${session.courseTitle || 'Untitled'} on ${session.classDate}. Students can now check in again.`,
+        forUser: classRepId,
+        groupId: session.groupId,
+        relatedId: session._id,
+        relatedType: 'attendance',
+        io,
+      });
+    }
+
+    io?.to(session.groupId.toString()).emit('group-notification', {
+      type: 'announcement',
+      title: 'Attendance Reopened',
+      message: `${session.courseCode} - ${session.courseTitle} on ${session.classDate} is reopened. You can check in.`,
+      relatedId: session._id,
+      relatedType: 'attendance',
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Attendance session ${session.attendanceId} has been reopened.`,
+      attendanceId: session.attendanceId,
+    });
+  } catch (err) {
+    console.error('❌ Reopen attendance error:', err);
+    return res.status(500).json({
+      success: false,
+      code: 'REOPEN_ERROR',
+      message: 'Something went wrong while reopening attendance.',
     });
   }
 };

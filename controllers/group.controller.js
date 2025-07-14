@@ -547,7 +547,7 @@ export const approveJoinRequest = async (req, res) => {
 
     io.to(student._id.toString()).emit('user:refresh');
 
-    io.to(repUser._id.toString()).emit('group:update', {
+    io.to(repUser._id.toString()).emit('group:notification', {
       groupId: group._id,
       action: 'member-approved',
       updatedBy: student._id,
