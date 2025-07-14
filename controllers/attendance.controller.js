@@ -34,6 +34,7 @@ export const createAttendance = async (req, res) => {
 
     const createdBy = req.user._id;
     const createdByName = req.user.name;
+    const io = req.io; // ✅ Socket instance
 
     validateCreateAttendancePayload(req.body, classTime);
 
@@ -122,22 +123,43 @@ export const createAttendance = async (req, res) => {
     }));
     await StudentAttendance.insertMany(studentDocs);
 
-    // 🔔 Send notification to group members (optional: filter if student role)
-    const notifyUsers = group.members.map((m) => m._id);
     await Promise.all(
-      notifyUsers.map((userId) =>
-        sendNotification({
-          forUser: userId,
+      group.members.map((member) => {
+        const isCreator = member._id.toString() === createdBy.toString();
+        const displayName = isCreator ? 'you' : createdByName;
+
+        return sendNotification({
+          forUser: member._id,
           fromUser: createdBy,
           type: 'attendance',
-          message: `🎓 Attendance is now open for ${courseTitle} (${courseCode}) on ${classDate}, ${classTime.start} – ${classTime.end}. Mark in before the deadline!`,
+          message: `🎓 Attendance is now open for ${courseTitle} (${courseCode}) on ${classDate}, ${classTime.start} – ${classTime.end}, created by ${displayName}. Mark in before the deadline!`,
           relatedId: newAttendance._id,
           relatedType: 'attendance',
           groupId,
           link: `/group/${groupId}/attendance/${newAttendance._id}`,
-        })
-      )
+          io,
+        });
+      })
     );
+
+    // ✅ Emit real-time socket event to the group room
+    if (io && groupId) {
+      io.to(groupId.toString()).emit('attendance:update', {
+        type: 'create',
+        attendanceId: newAttendance.attendanceId,
+        groupId,
+        date: classDate,
+        createdBy: {
+          id: createdBy,
+          name: createdByName,
+        },
+        course: {
+          code: courseCode,
+          title: courseTitle,
+        },
+        time: classTime,
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -373,6 +395,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       location = {},
       mode = 'checkIn',
     } = req.body;
+    const io = req.io;
 
     const attendance = await Attendance.findById(attendanceId);
     if (!attendance) {
@@ -493,6 +516,14 @@ export const markGeoAttendanceEntry = async (req, res) => {
       attendance.summaryStats.totalPresent += 1;
       await attendance.save();
 
+      io.to(attendance.groupId.toString()).emit('attendance:progress', {
+        attendanceId: attendance._id,
+        studentId: studentRecord.studentId,
+        studentName: studentRecord.name,
+        status: studentRecord.status,
+        summaryStats: attendance.summaryStats,
+      });
+
       // Notify Rep if flagged
       if (isFlagged) {
         const group = await Group.findById(attendance.groupId).select(
@@ -560,6 +591,15 @@ export const markGeoAttendanceEntry = async (req, res) => {
 
       await studentRecord.save();
       await attendance.save();
+
+      // 🔥 EMIT SOCKET EVENT HERE
+      req.io.to(attendance.groupId.toString()).emit('attendance:progress', {
+        attendanceId: attendance._id,
+        studentId: studentRecord.studentId,
+        studentName: studentRecord.name,
+        status: studentRecord.status,
+        summaryStats: attendance.summaryStats,
+      });
 
       return res.status(200).json({
         success: true,

@@ -5,6 +5,7 @@ import Attendance from '../models/attendance.model.js';
 import { sendNotification } from '../utils/sendNotification.js';
 import Notification from '../models/notification.model.js';
 import { hasRecentlySentNotification } from '../utils/rateLimitNotification.js';
+import StudentAttendance from '../models/student.attendance.model.js';
 
 export const createGroup = async (req, res) => {
   try {
@@ -399,26 +400,24 @@ export const approveJoinRequest = async (req, res) => {
   const io = req.io;
 
   try {
+    // 1. Fetch the group
     const group = await Group.findById(groupId);
     if (!group) {
-      return res.status(404).json({
-        success: false,
-        message: 'Group not found. Please check the group ID.',
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Group not found.' });
     }
 
     if (group.createdBy.toString() !== repUser._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message:
-          'You are not authorized to manage join requests for this group.',
-      });
+      return res
+        .status(403)
+        .json({ success: false, message: 'Not authorized.' });
     }
 
+    // 2. Check join request
     const requestIndex = group.joinRequests.findIndex(
       (r) => r.user.toString() === studentId
     );
-
     if (requestIndex === -1) {
       return res.status(400).json({
         success: false,
@@ -428,10 +427,10 @@ export const approveJoinRequest = async (req, res) => {
 
     const request = group.joinRequests[requestIndex];
 
+    // 3. Ensure user isn't already a member
     const alreadyMember = group.members.some(
       (member) => member._id.toString() === studentId
     );
-
     if (alreadyMember) {
       return res.status(409).json({
         success: false,
@@ -439,7 +438,7 @@ export const approveJoinRequest = async (req, res) => {
       });
     }
 
-    // Add to members list
+    // 4. Add to group members
     group.members.push({
       _id: request.user,
       name: request.name,
@@ -451,24 +450,21 @@ export const approveJoinRequest = async (req, res) => {
       matricNumber: request.matricNumber,
     });
 
-    // Update join request status
-    request.status = 'approved';
-    request.updatedAt = new Date();
+    // 5. Remove from joinRequests
+    group.joinRequests.splice(requestIndex, 1);
     await group.save();
 
-    // Update user's group
+    // 6. Update student's group reference
     const student = await User.findById(studentId);
     if (!student) {
-      return res.status(404).json({
-        success: false,
-        message: 'Student not found.',
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Student not found.' });
     }
-
     student.group = groupId;
     await student.save();
 
-    // Add to active attendance
+    // 7. Add StudentAttendance record if attendance is active
     const today = new Date().toISOString().split('T')[0];
     const activeAttendance = await Attendance.findOne({
       groupId,
@@ -477,31 +473,32 @@ export const approveJoinRequest = async (req, res) => {
     });
 
     if (activeAttendance) {
-      const alreadyInAttendance = activeAttendance.studentRecords.some(
-        (r) => r.studentId.toString() === studentId
-      );
+      const existing = await StudentAttendance.findOne({
+        attendanceId: activeAttendance._id,
+        studentId: student._id,
+      });
 
-      if (!alreadyInAttendance) {
-        activeAttendance.studentRecords.push({
+      if (!existing) {
+        await StudentAttendance.create({
+          attendanceId: activeAttendance._id,
           studentId: student._id,
           name: student.name,
           status: 'absent',
+          joinedAfterAttendanceCreated: true,
           flagged: {
             isFlagged: true,
-            reasons: ['joined_after_attendance_created'],
-            note: 'Student joined group after attendance session was created.',
-            flaggedAt: new Date(),
             flaggedBy: repUser._id,
+            flaggedAt: new Date(),
+            note: 'Student joined group after attendance was created.',
+            reasons: ['joined_after_attendance_created'],
           },
-          joinedAfterAttendanceCreated: true,
         });
 
-        await activeAttendance.save();
-        console.log(`[✅] Student added to active attendance for ${today}`);
+        console.log(`[✅] ${student.name} added to today's attendance`);
       }
     }
 
-    // ✅ Notify the student
+    // 8. Notify student
     await sendNotification({
       type: 'info',
       forUser: student._id,
@@ -513,7 +510,7 @@ export const approveJoinRequest = async (req, res) => {
       io,
     });
 
-    // ✅ Notify the rep as confirmation
+    // 9. Notify class rep as confirmation
     await sendNotification({
       type: 'info',
       forUser: repUser._id,
@@ -525,7 +522,7 @@ export const approveJoinRequest = async (req, res) => {
       io,
     });
 
-    // ✅ Archive and clean old approval notifications
+    // 10. Archive old approval-related notifications
     await Notification.updateMany(
       {
         from: student._id,
@@ -545,8 +542,8 @@ export const approveJoinRequest = async (req, res) => {
       }
     );
 
+    // 11. Emit socket updates
     io.to(student._id.toString()).emit('user:refresh');
-
     io.to(repUser._id.toString()).emit('group:notification', {
       groupId: group._id,
       action: 'member-approved',
@@ -556,10 +553,10 @@ export const approveJoinRequest = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `${request.name} has been approved and added to the group.`,
-      memberId: request.user,
+      memberId: student._id,
     });
   } catch (err) {
-    console.error('approveJoinRequest error:', err);
+    console.error('❌ approveJoinRequest error:', err);
     return res.status(500).json({
       success: false,
       message: 'An error occurred while approving the join request.',
@@ -574,6 +571,7 @@ export const rejectJoinRequest = async (req, res) => {
   const io = req.io;
 
   try {
+    // 🔍 1. Find the group
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({
@@ -582,6 +580,7 @@ export const rejectJoinRequest = async (req, res) => {
       });
     }
 
+    // 🔐 2. Check Class Rep permissions
     if (group.createdBy.toString() !== repUser._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -590,6 +589,7 @@ export const rejectJoinRequest = async (req, res) => {
       });
     }
 
+    // 🧼 3. Look for the pending request
     const requestIndex = group.joinRequests.findIndex(
       (r) => r.user.toString() === studentId
     );
@@ -601,31 +601,30 @@ export const rejectJoinRequest = async (req, res) => {
       });
     }
 
-    const rejected = group.joinRequests[requestIndex];
+    const rejectedRequest = group.joinRequests[requestIndex];
 
-    // Remove the request
+    // ❌ 4. Remove the request from the array
     group.joinRequests.splice(requestIndex, 1);
     await group.save();
 
-    // ✅ Notify the student
+    // 🔔 5. Notify the student
     await sendNotification({
       type: 'info',
       forUser: studentId,
       fromUser: repUser._id,
-      message: `Your request to join "${group.groupName}" was rejected.`,
-      groupId,
+      message: `Your request to join "${group.groupName}" has been rejected.`,
+      groupId: group._id,
       relatedId: group._id,
       relatedType: 'group',
       io,
     });
 
-    // ✅ Archive any related previous notifications
+    // 🗃️ 6. Archive any past approval-related notifications
     await Notification.updateMany(
       {
         for: studentId,
         from: repUser._id,
-        groupId,
-        relatedId: group._id,
+        groupId: group._id,
         relatedType: 'group',
         type: 'approval',
         isArchived: false,
@@ -633,13 +632,14 @@ export const rejectJoinRequest = async (req, res) => {
       { $set: { isArchived: true } }
     );
 
+    // ✅ 7. Return success
     return res.status(200).json({
       success: true,
-      message: `${rejected.name}'s join request has been rejected.`,
-      studentId: rejected.user,
+      message: `Join request from ${rejectedRequest.name || 'the student'} has been rejected.`,
+      studentId: rejectedRequest.user,
     });
   } catch (err) {
-    console.error('rejectJoinRequest error:', err);
+    console.error('❌ rejectJoinRequest error:', err);
     return res.status(500).json({
       success: false,
       message: 'An error occurred while rejecting the join request.',
@@ -670,7 +670,6 @@ export const leaveGroup = async (req, res) => {
 
   try {
     const group = await Group.findById(groupId).populate('createdBy');
-
     if (!group) {
       return res.status(404).json({
         success: false,
@@ -678,48 +677,45 @@ export const leaveGroup = async (req, res) => {
       });
     }
 
-    // Remove from group members
-    group.members = group.members.filter(
-      (member) => member._id.toString() !== user._id.toString()
-    );
+    const userIdStr = user._id.toString();
 
-    // Remove pending join requests (if any)
+    // ❌ Remove from members
+    group.members = group.members.filter((m) => m._id.toString() !== userIdStr);
+
+    // ❌ Remove from join requests
     group.joinRequests = group.joinRequests.filter(
-      (r) => r.user.toString() !== user._id.toString()
+      (r) => r.user.toString() !== userIdStr
     );
 
     await group.save();
 
-    // Unassign group from user
+    // ❌ Clear user's group info
     user.group = null;
     user.requestedJoinGroup = null;
     await user.save();
 
-    // 🔥 Remove from today’s active attendance
-    const today = new Date().toISOString().split('T')[0];
+    // ❌ Remove from today's active attendance via StudentAttendance
+    const todayISO = new Date().toISOString().split('T')[0];
     const activeAttendance = await Attendance.findOne({
       groupId,
-      classDate: today,
+      classDate: todayISO,
       status: 'active',
     });
 
     if (activeAttendance) {
-      const index = activeAttendance.studentRecords.findIndex((r) =>
-        r.studentId.equals(user._id)
-      );
-
-      if (index !== -1) {
-        activeAttendance.studentRecords.splice(index, 1);
-        await activeAttendance.save();
-      }
+      await StudentAttendance.deleteOne({
+        attendanceId: activeAttendance._id,
+        studentId: user._id,
+      });
     }
 
-    // 🔔 Notify the Class Rep
-    if (group.createdBy?._id) {
+    // 🔔 Notify Class Rep
+    const repId = group.createdBy?._id?.toString();
+    if (repId) {
       await sendNotification({
         type: 'info',
         message: `${user.name} has left your group.`,
-        forUser: group.createdBy._id,
+        forUser: repId,
         fromUser: user._id,
         groupId,
         relatedId: groupId,
@@ -729,7 +725,7 @@ export const leaveGroup = async (req, res) => {
       });
     }
 
-    // 📦 Archive previous related notifications
+    // 📦 Archive old group-related notifications
     await Notification.updateMany(
       {
         for: user._id,
@@ -746,7 +742,7 @@ export const leaveGroup = async (req, res) => {
       message: 'You have successfully left the group.',
     });
   } catch (err) {
-    console.error('leaveGroup error:', err);
+    console.error('❌ leaveGroup error:', err);
     return res.status(500).json({
       success: false,
       message: 'An error occurred while leaving the group.',

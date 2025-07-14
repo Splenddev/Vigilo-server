@@ -8,7 +8,8 @@ import rateLimit from 'express-rate-limit';
 import http from 'http';
 
 import connectDB from './config/db.js';
-import { initSocket } from './socket/socket.js'; // ✅ NEW
+import { initSocket } from './socket/socket.js';
+import { startCronJobs } from './cronJobs/index.js'; // ✅ NEW
 
 // Routes
 import userRoutes from './routes/authRoutes.js';
@@ -16,10 +17,9 @@ import groupRoutes from './routes/group.routes.js';
 import scheduleRoutes from './routes/schedule.routes.js';
 import attendanceRoutes from './routes/attendance.routes.js';
 import courseRouter from './routes/course.routes.js';
+import notificationRouter from './routes/notifications.routes.js';
 
 import { errorHandler } from './middlewares/errorHandler.js';
-import notificationRouter from './routes/notifications.routes.js';
-import { startAttendanceFinalizer } from './cronJobs/attendanceFinalizer.js';
 
 dotenv.config();
 const app = express();
@@ -27,16 +27,16 @@ await connectDB();
 
 const server = http.createServer(app);
 
-// Socket.IO setup
-const io = initSocket(server); // ✅ use modular socket handler
+// ✅ Initialize Socket.IO
+const io = initSocket(server);
 
-// Attach io to all req objects
+// ✅ Attach io to requests
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// CORS, security, and middlewares
+// ✅ Global Middlewares
 app.use(
   cors({
     origin: [
@@ -56,12 +56,12 @@ app.use(
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Rate limiting
+// ✅ Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 5,
-  keyGenerator: (req, res) => req.body?.email || req.ip,
-  message: (req, res) => ({
+  keyGenerator: (req) => req.body?.email || req.ip,
+  message: () => ({
     success: false,
     message: `You've made too many attempts using this ${
       req.body?.email ? 'email' : 'device'
@@ -73,7 +73,7 @@ const authLimiter = rateLimit({
 app.use('/app/auth/login', authLimiter);
 app.use('/app/auth/send-otp', authLimiter);
 
-// Routes
+// ✅ Routes
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
 app.use('/app/schedule', scheduleRoutes);
@@ -81,18 +81,18 @@ app.use('/app/attendance', attendanceRoutes);
 app.use('/app/courses', courseRouter);
 app.use('/app/notifications', notificationRouter);
 
-//cron-jobs
-startAttendanceFinalizer(io);
+// ✅ Start all cron jobs
+startCronJobs(io);
 
-// Default route
+// ✅ Health Check
 app.get('/', (req, res) => {
   res.send('API is live 🌐');
 });
 
-// Error handler
+// ✅ Error Handler
 app.use(errorHandler);
 
-// Start server
+// ✅ Start Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () =>
   console.log(`🚀 Server and Socket.IO running on http://localhost:${PORT}`)

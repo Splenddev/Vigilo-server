@@ -90,6 +90,11 @@ const attendanceSchema = new mongoose.Schema({
     default: Date.now,
   },
 
+  autoEnd: {
+    type: Boolean,
+    default: true,
+  },
+
   summaryStats: {
     totalPresent: { type: Number, default: 0 },
     onTime: { type: Number, default: 0 },
