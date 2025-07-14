@@ -19,6 +19,7 @@ import courseRouter from './routes/course.routes.js';
 
 import { errorHandler } from './middlewares/errorHandler.js';
 import notificationRouter from './routes/notifications.routes.js';
+import { startAttendanceFinalizer } from './cronJobs/attendanceFinalizer.js';
 
 dotenv.config();
 const app = express();
@@ -79,6 +80,9 @@ app.use('/app/schedule', scheduleRoutes);
 app.use('/app/attendance', attendanceRoutes);
 app.use('/app/courses', courseRouter);
 app.use('/app/notifications', notificationRouter);
+
+//cron-jobs
+startAttendanceFinalizer(io);
 
 // Default route
 app.get('/', (req, res) => {

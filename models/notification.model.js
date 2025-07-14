@@ -11,6 +11,7 @@ const notificationSchema = new mongoose.Schema({
       'class-reminder',
       'assignment-deadline',
       'info',
+      'flag_alert',
     ],
     required: true,
   },
