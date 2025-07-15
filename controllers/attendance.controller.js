@@ -592,8 +592,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       await studentRecord.save();
       await attendance.save();
 
-      // 🔥 EMIT SOCKET EVENT HERE
-      req.io.to(attendance.groupId.toString()).emit('attendance:progress', {
+      io.to(attendance.groupId.toString()).emit('attendance:progress', {
         attendanceId: attendance._id,
         studentId: studentRecord.studentId,
         studentName: studentRecord.name,
@@ -743,8 +742,8 @@ export const finalizeSingleAttendance = async (req, res) => {
 export const deleteAttendance = async (req, res) => {
   try {
     const { attendanceId } = req.params;
+    const { io } = req;
 
-    // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
       return res.status(400).json({
         success: false,
@@ -753,9 +752,7 @@ export const deleteAttendance = async (req, res) => {
       });
     }
 
-    // Find the attendance session
     const attendance = await Attendance.findById(attendanceId);
-
     if (!attendance) {
       return res.status(404).json({
         success: false,
@@ -772,8 +769,14 @@ export const deleteAttendance = async (req, res) => {
       });
     }
 
-    // Delete the attendance session
     await Attendance.findByIdAndDelete(attendanceId);
+
+    // 🔔 Emit socket event to group room
+    io?.to(attendance.groupId.toString()).emit('attendance:deleted', {
+      attendanceId,
+      classDate: attendance.classDate,
+      groupId: attendance.groupId,
+    });
 
     return res.status(200).json({
       success: true,
@@ -824,16 +827,16 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    // Optional: disallow reopening sessions older than X days (e.g. audit control)
     const classDate = new Date(session.classDate);
     const daysSince =
       (Date.now() - classDate.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince > 5)
+    if (daysSince > 5) {
       return res.status(403).json({
         success: false,
         code: 'OLD_SESSION',
         message: 'Cannot reopen old sessions.',
       });
+    }
 
     session.status = 'active';
     await session.save();
@@ -853,12 +856,13 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    io?.to(session.groupId.toString()).emit('group-notification', {
-      type: 'announcement',
-      title: 'Attendance Reopened',
-      message: `${session.courseCode} - ${session.courseTitle} on ${session.classDate} is reopened. You can check in.`,
-      relatedId: session._id,
-      relatedType: 'attendance',
+    // 🔔 Emit socket event to group room
+    io?.to(session.groupId.toString()).emit('attendance:reopened', {
+      attendanceId: session._id,
+      groupId: session.groupId,
+      classDate: session.classDate,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
     });
 
     return res.status(200).json({

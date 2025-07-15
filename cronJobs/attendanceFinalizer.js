@@ -4,7 +4,7 @@ import Group from '../models/group.js';
 import { sendNotification } from '../utils/sendNotification.js';
 
 export const startAttendanceFinalizer = (io) => {
-  cron.schedule('*/2 * * * *', async () => {
+  cron.schedule('0 23 * * *', async () => {
     console.log('🕒 Finalizing past attendance sessions...');
 
     const todayISO = new Date().toISOString().split('T')[0];
@@ -13,6 +13,7 @@ export const startAttendanceFinalizer = (io) => {
       const sessions = await Attendance.find({
         status: 'active',
         classDate: { $lt: todayISO },
+        autoEnd: true,
       }).populate('studentRecords');
       console.log(sessions);
       for (const session of sessions) {
