@@ -47,52 +47,108 @@ const attendanceSchema = new mongoose.Schema({
       ],
     },
     start: String,
-    end: String,
+    end: {
+      type: String,
+      validate: {
+        validator: function (value) {
+          const parse = (t) => {
+            if (!t || typeof t !== 'string' || !t.includes(':')) return null;
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+          };
+
+          const start = this?.classTime?.start;
+          const end = value;
+
+          const startMins = parse(start);
+          const endMins = parse(end);
+
+          if (startMins === null || endMins === null) return false;
+
+          return endMins - startMins >= 30;
+        },
+        message: 'Class duration must be at least 30 minutes.',
+      },
+    },
   },
+
   entry: {
     start: { type: String, default: '0H10M' },
     end: { type: String, default: '1H30M' },
   },
+
   attendanceType: {
     type: String,
     enum: ['physical', 'virtual'],
     default: 'physical',
   },
-  markingConfig: {
-    type: {
+
+  /// ✅ Core attendance settings
+  settings: {
+    markOnce: { type: Boolean, default: true },
+    allowLateJoiners: { type: Boolean, default: true },
+    lateThreshold: { type: Number, default: 10 },
+    pleaWindow: { type: Number, default: 3 },
+    proofRequirement: {
       type: String,
-      enum: ['strict', 'detailed'],
-      default: 'strict',
+      enum: ['none', 'selfie', 'fingerprint'],
+      default: 'none',
     },
-    mode: {
-      type: String,
-      enum: ['code', 'no_code'],
-      default: 'no_code',
+
+    enableCheckInOut: { type: Boolean, default: false },
+    allowEarlyCheckInOut: { type: Boolean, default: false },
+    allowLateCheckInOut: { type: Boolean, default: true },
+    minimumPresenceDuration: {
+      type: Number,
+      default: 45, //mins
+    },
+    autoCheckOut: { type: Boolean, default: true },
+
+    deviceLock: { type: Boolean, default: false },
+    ipRestriction: { type: Boolean, default: false },
+    repeatable: { type: Boolean, default: false },
+    notifyOnStart: { type: Boolean, default: true },
+
+    markingConfig: {
+      type: {
+        type: String,
+        enum: ['strict', 'detailed'],
+        default: 'strict',
+      },
+      mode: {
+        type: String,
+        enum: ['code', 'no_code'],
+        default: 'no_code',
+      },
     },
   },
+
   location: {
     latitude: Number,
     longitude: Number,
     radiusMeters: Number,
   },
+
   status: {
     type: String,
     enum: ['active', 'closed'],
     default: 'active',
   },
+
+  autoEnd: {
+    type: Boolean,
+    default: true,
+  },
+
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
   },
+
   createdAt: {
     type: Date,
     default: Date.now,
-  },
-
-  autoEnd: {
-    type: Boolean,
-    default: true,
   },
 
   summaryStats: {
@@ -107,24 +163,20 @@ const attendanceSchema = new mongoose.Schema({
   notes: String,
 });
 
-// ✅ Enable virtuals in JSON and object outputs
 attendanceSchema.set('toObject', { virtuals: true });
 attendanceSchema.set('toJSON', { virtuals: true });
 
-// ✅ Reverse relationship: Attendance -> StudentAttendance
 attendanceSchema.virtual('studentRecords', {
   ref: 'StudentAttendance',
   localField: '_id',
   foreignField: 'attendanceId',
 });
 
-// ✅ Unique index to prevent duplicates on same date/time
 attendanceSchema.index(
   { scheduleId: 1, classDate: 1, 'classTime.start': 1 },
   { unique: true, sparse: true }
 );
 
-// ✅ Export
 const Attendance =
   mongoose.models.Attendance || mongoose.model('Attendance', attendanceSchema);
 
