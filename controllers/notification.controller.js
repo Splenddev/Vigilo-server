@@ -29,8 +29,8 @@ export const markAllAsRead = async (req, res) => {
     const userId = req.user._id;
 
     await Notification.updateMany(
-      { for: userId, unread: false },
-      { $set: { unread: true } }
+      { for: userId, unread: true },
+      { $set: { unread: false } }
     );
 
     res.status(200).json({

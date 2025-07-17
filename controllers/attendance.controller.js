@@ -16,6 +16,9 @@ import {
 
 import StudentAttendance from '../models/student.attendance.model.js';
 
+import { isBefore, isSameDay, parseISO } from 'date-fns';
+import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntryhandlers/emitAttendanceProgress.js';
+
 export const createAttendance = async (req, res) => {
   try {
     const {
@@ -34,14 +37,39 @@ export const createAttendance = async (req, res) => {
 
     const createdBy = req.user._id;
     const createdByName = req.user.name;
-    const io = req.io; // ✅ Socket instance
+    const io = req.io;
 
-    validateCreateAttendancePayload(req.body, classTime);
+    const now = new Date();
+    const classDateObj = new Date(classDate);
 
-    // Entry Window Validation
+    // ❌ Reject past class dates
+    if (isBefore(classDateObj, now.setHours(0, 0, 0, 0))) {
+      return res.status(400).json({
+        success: false,
+        code: 'PAST_DATE',
+        message: 'You cannot create attendance for a past date.',
+      });
+    }
+
+    // ✅ Auto-detect classTime.day from classDate
+    const dayOfWeek = classDateObj.toLocaleDateString('en-US', {
+      weekday: 'long',
+    });
+
+    const computedClassTime = {
+      ...classTime,
+      day: dayOfWeek, // override submitted day
+    };
+
+    // ✅ Determine status from date
+    const status = isSameDay(classDateObj, new Date()) ? 'active' : 'upcoming';
+
+    validateCreateAttendancePayload(req.body, computedClassTime);
+
+    // ✅ Entry window validation
     if (entry?.start && entry?.end) {
-      const entryStartMins = toMinutes(entry.start, classTime);
-      const entryEndMins = toMinutes(entry.end, classTime);
+      const entryStartMins = toMinutes(entry.start, computedClassTime);
+      const entryEndMins = toMinutes(entry.end, computedClassTime);
       if (
         entryStartMins === null ||
         entryEndMins === null ||
@@ -55,14 +83,15 @@ export const createAttendance = async (req, res) => {
       }
     }
 
-    // Duplicate Check
+    // ✅ Check for duplicate
     const duplicate = await checkDuplicateAttendance({
       scheduleId,
       courseCode,
       courseTitle,
       classDate,
-      classTime,
+      classTime: computedClassTime,
     });
+
     if (duplicate) {
       return res.status(409).json({
         success: false,
@@ -102,11 +131,12 @@ export const createAttendance = async (req, res) => {
       classDate,
       courseCode,
       courseTitle,
-      classTime,
+      classTime: computedClassTime,
       entry,
       location,
       attendanceType: attendanceType || 'physical',
       markingConfig,
+      status,
       createdBy,
       lecturer: {
         name: schedule?.lecturer?.name || lecturer?.name,
@@ -114,6 +144,7 @@ export const createAttendance = async (req, res) => {
       },
     });
 
+    // Insert initial absent records
     const studentDocs = group.members.map((student) => ({
       attendanceId: newAttendance._id,
       studentId: student._id,
@@ -123,6 +154,7 @@ export const createAttendance = async (req, res) => {
     }));
     await StudentAttendance.insertMany(studentDocs);
 
+    // Send notification to all
     await Promise.all(
       group.members.map((member) => {
         const isCreator = member._id.toString() === createdBy.toString();
@@ -132,7 +164,7 @@ export const createAttendance = async (req, res) => {
           forUser: member._id,
           fromUser: createdBy,
           type: 'attendance',
-          message: `🎓 Attendance is now open for ${courseTitle} (${courseCode}) on ${classDate}, ${classTime.start} – ${classTime.end}, created by ${displayName}. Mark in before the deadline!`,
+          message: `🎓 Attendance is now open for ${courseTitle} (${courseCode}) on ${classDate}, ${classTime.start} – ${classTime.end}, created by ${displayName}.`,
           relatedId: newAttendance._id,
           relatedType: 'attendance',
           groupId,
@@ -142,7 +174,7 @@ export const createAttendance = async (req, res) => {
       })
     );
 
-    // ✅ Emit real-time socket event to the group room
+    // Emit socket event
     if (io && groupId) {
       io.to(groupId.toString()).emit('attendance:update', {
         type: 'create',
@@ -157,7 +189,7 @@ export const createAttendance = async (req, res) => {
           code: courseCode,
           title: courseTitle,
         },
-        time: classTime,
+        time: computedClassTime,
       });
     }
 
@@ -487,22 +519,35 @@ export const markGeoAttendanceEntry = async (req, res) => {
       const flagReasons = [];
 
       if (markTime < entryStart || markTime > entryEnd) {
-        flagReasons.push('outside_marking_window');
+        flagReasons.push({
+          code: 'outside_marking_window',
+          note: 'Marked outside the allowed time window.',
+        });
       }
       if (method === 'geo' && !wasWithinRange) {
-        flagReasons.push('location_mismatch');
+        flagReasons.push({
+          code: 'location_mismatch',
+          note: 'User was not within allowed geolocation range.',
+        });
       }
       if (method === 'geo' && !location.latitude) {
-        flagReasons.push('geo_disabled');
+        flagReasons.push({
+          code: 'geo_disabled',
+          note: 'Geolocation data missing or not permitted by user.',
+        });
       }
 
       const isFlagged = flagReasons.length > 0;
       studentRecord.flagged = {
         isFlagged,
-        reasons: flagReasons,
+        reasons: flagReasons.map((r) => ({
+          type: r.code,
+          note: r.note,
+          severity: r.severity || 'medium', // optional fallback
+          detectedBy: 'system', // or 'rep' if applicable
+        })),
         flaggedAt: isFlagged ? new Date() : undefined,
         flaggedBy: isFlagged ? req.user._id : undefined,
-        note: isFlagged ? 'Auto-flagged based on trust rules.' : '',
       };
 
       await studentRecord.save();
@@ -516,13 +561,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       attendance.summaryStats.totalPresent += 1;
       await attendance.save();
 
-      io.to(attendance.groupId.toString()).emit('attendance:progress', {
-        attendanceId: attendance._id,
-        studentId: studentRecord.studentId,
-        studentName: studentRecord.name,
-        status: studentRecord.status,
-        summaryStats: attendance.summaryStats,
-      });
+      emitAttendanceProgress(io, attendance, studentRecord);
 
       // Notify Rep if flagged
       if (isFlagged) {
@@ -530,9 +569,13 @@ export const markGeoAttendanceEntry = async (req, res) => {
           'createdBy'
         );
         if (group?.createdBy) {
+          const readableReasons = flagReasons
+            .map((r) => `${r.code} - ${r.note}`)
+            .join(', ');
+
           await sendNotification({
             type: 'info',
-            message: `${studentRecord.name || 'A student'} was flagged during check-in: ${flagReasons.join(', ')}`,
+            message: `${studentRecord.name || 'A student'} was flagged during check-in: ${readableReasons}`,
             forUser: group.createdBy,
             fromUser: userId,
             groupId: group._id,
@@ -563,6 +606,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
           code: 'CHECK_IN_REQUIRED',
         });
       }
+
       if (studentRecord.checkOut?.time) {
         throw createHttpError(409, 'You have already marked check-out.', {
           code: 'ALREADY_CHECKED_OUT',
@@ -581,24 +625,28 @@ export const markGeoAttendanceEntry = async (req, res) => {
         location,
         distanceFromClassMeters,
       };
+
       studentRecord.departureDeltaMinutes = departureDeltaMinutes;
       studentRecord.durationMinutes = durationMinutes;
 
-      if (departureDeltaMinutes > 10) {
+      // === Handle Early Leave ===
+      const leftEarlyThreshold = 10;
+      const prevStatus = studentRecord.status;
+
+      if (departureDeltaMinutes > leftEarlyThreshold) {
         studentRecord.status = 'left_early';
+
+        // Adjust stats safely
+        if (prevStatus === 'on_time') attendance.summaryStats.onTime -= 1;
+        if (prevStatus === 'late') attendance.summaryStats.late -= 1;
+
         attendance.summaryStats.leftEarly += 1;
       }
 
       await studentRecord.save();
       await attendance.save();
 
-      io.to(attendance.groupId.toString()).emit('attendance:progress', {
-        attendanceId: attendance._id,
-        studentId: studentRecord.studentId,
-        studentName: studentRecord.name,
-        status: studentRecord.status,
-        summaryStats: attendance.summaryStats,
-      });
+      emitAttendanceProgress(io, attendance, studentRecord);
 
       return res.status(200).json({
         success: true,

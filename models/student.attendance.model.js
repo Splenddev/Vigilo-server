@@ -68,26 +68,43 @@ const studentAttendanceSchema = new mongoose.Schema(
       isFlagged: { type: Boolean, default: false },
       reasons: [
         {
-          type: String,
-          enum: [
-            'location_mismatch',
-            'manual_override',
-            'suspicious_timing',
-            'repeat_offender',
-            'proof_needed',
-            'fake_location',
-            'geo_disabled',
-            'outside_marking_window',
-            'other',
-            'joined_after_attendance_created',
-          ],
+          type: {
+            type: String,
+            enum: [
+              'location_mismatch',
+              'manual_override',
+              'suspicious_timing',
+              'repeat_offender',
+              'proof_needed',
+              'fake_location',
+              'geo_disabled',
+              'outside_marking_window',
+              'other',
+              'joined_after_attendance_created',
+            ],
+          },
+          severity: {
+            type: String,
+            enum: ['low', 'medium', 'high'],
+            default: 'medium',
+          },
+          detectedBy: {
+            type: String,
+            enum: ['system', 'rep'],
+            default: 'system',
+          },
+          note: String,
         },
       ],
-      note: String,
       flaggedAt: Date,
       flaggedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
+      },
+      status: {
+        type: String,
+        enum: ['active', 'dismissed'],
+        default: 'active',
       },
     },
 

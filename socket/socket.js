@@ -23,7 +23,7 @@ export const initSocket = (server) => {
 
     // Group room
     socket.on('joinGroup', (groupId) => {
-      socket.join(groupId);
+      socket.join(String(groupId));
       console.log(`📥 Socket ${socket.id} joined group room ${groupId}`);
     });
 

@@ -131,7 +131,7 @@ const attendanceSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['active', 'closed'],
+    enum: ['active', 'closed', 'upcoming'],
     default: 'active',
   },
 

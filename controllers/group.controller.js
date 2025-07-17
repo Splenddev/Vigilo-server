@@ -1,6 +1,5 @@
 import Group from '../models/group.js';
 import User from '../models/userModel.js';
-import Schedule from '../models/schedule.model.js';
 import Attendance from '../models/attendance.model.js';
 import { sendNotification } from '../utils/sendNotification.js';
 import Notification from '../models/notification.model.js';
@@ -375,7 +374,7 @@ export const cancelJoinRequest = async (req, res) => {
 
     await sendNotification({
       type: 'info',
-      message: `Your join request to "${group.groupName}" has been canceled.`,
+      message: `Your join request to "${group.groupName}" has been canceled by you.`,
       forUser: userId,
       fromUser: userId,
       groupId,
@@ -434,7 +433,7 @@ export const approveJoinRequest = async (req, res) => {
     if (alreadyMember) {
       return res.status(409).json({
         success: false,
-        message: 'This user is already a member of the group.',
+        message: `This user is already a member of ${group.groupName}.`,
       });
     }
 
@@ -490,7 +489,14 @@ export const approveJoinRequest = async (req, res) => {
             flaggedBy: repUser._id,
             flaggedAt: new Date(),
             note: 'Student joined group after attendance was created.',
-            reasons: ['joined_after_attendance_created'],
+            reasons: [
+              {
+                type: 'joined_after_attendance_created', // not "code"
+                note: 'Student was not in the group when attendance was started.',
+                severity: 'medium', // optional, but good to include
+                detectedBy: 'system', // or 'rep' if flagged manually
+              },
+            ],
           },
         });
 
@@ -677,6 +683,15 @@ export const leaveGroup = async (req, res) => {
       });
     }
 
+    if (group.creator._id.toString() === user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        code: 'REP_MUST_ASSIGN',
+        message:
+          'As the Class Rep, you must assign a new Class Rep before leaving the group.',
+      });
+    }
+
     const userIdStr = user._id.toString();
 
     // ❌ Remove from members
@@ -714,7 +729,7 @@ export const leaveGroup = async (req, res) => {
     if (repId) {
       await sendNotification({
         type: 'info',
-        message: `${user.name} has left your group.`,
+        message: `${user.name} has left your group: ${group.groupName}.`,
         forUser: repId,
         fromUser: user._id,
         groupId,
@@ -746,6 +761,139 @@ export const leaveGroup = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'An error occurred while leaving the group.',
+      error: err.message,
+    });
+  }
+};
+
+export const transferLeadership = async (req, res) => {
+  const { groupId, newRepId } = req.body;
+  const repUser = req.user;
+
+  try {
+    const group = await Group.findById(groupId).populate('members');
+    if (!group) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Group not found.' });
+    }
+
+    // Ensure caller is the current rep
+    if (group.createdBy.toString() !== repUser._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the current Class Rep can assign a new rep.',
+      });
+    }
+
+    const newRep = group.members.find(
+      (member) => member._id.toString() === newRepId
+    );
+
+    if (!newRep) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected user is not a member of this group.',
+      });
+    }
+
+    group.createdBy = newRepId;
+    await group.save();
+
+    // Optional: notify both users
+    await sendNotification({
+      forUser: newRepId,
+      fromUser: repUser._id,
+      type: 'info',
+      groupId,
+      relatedId: groupId,
+      relatedType: 'group',
+      message: `🎓 You have been assigned as the new Class Rep of "${group.groupName}".`,
+      io: req.io,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Leadership successfully transferred to ${newRep.name}.`,
+    });
+  } catch (err) {
+    console.error('❌ Error transferring leadership:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while assigning the new rep.',
+    });
+  }
+};
+
+export const deleteGroup = async (req, res) => {
+  const user = req.user;
+  const io = req.io;
+  const { groupId } = req.params;
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized. User not found.',
+    });
+  }
+
+  try {
+    const group = await Group.findById(groupId).populate('members createdBy');
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found.',
+      });
+    }
+
+    // Ensure only Class Rep can delete group
+    if (group.createdBy._id.toString() !== user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the Class Rep can delete this group.',
+      });
+    }
+
+    // Update each user's group info
+    await Promise.all(
+      group.members.map(async (member) => {
+        member.group = null;
+        member.requestedJoinGroup = null;
+        await member.save();
+
+        // Optional: notify members
+        await sendNotification({
+          forUser: member._id,
+          fromUser: user._id,
+          type: 'info',
+          groupId,
+          message: `❌ Your group "${group.groupName}" has been deleted by the Class Rep.`,
+          relatedType: 'group',
+          relatedId: groupId,
+          io,
+        });
+      })
+    );
+
+    // Delete related models
+    await Attendance.deleteMany({ groupId });
+    await StudentAttendance.deleteMany({ groupId });
+    await Notification.deleteMany({ groupId });
+    // await Assignment.deleteMany({ groupId });
+    // await Media.deleteMany({ groupId });
+
+    // Delete the group itself
+    await Group.findByIdAndDelete(groupId);
+
+    return res.status(200).json({
+      success: true,
+      message: `Group "${group.groupName}" deleted successfully.`,
+    });
+  } catch (err) {
+    console.error('❌ deleteGroup error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while deleting the group.',
       error: err.message,
     });
   }

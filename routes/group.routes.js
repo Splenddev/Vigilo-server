@@ -6,11 +6,13 @@ import {
   approveJoinRequest,
   cancelJoinRequest,
   createGroup,
+  deleteGroup,
   findGroupById,
   joinGroup,
   leaveGroup,
   rejectJoinRequest,
   searchGroup,
+  transferLeadership,
 } from '../controllers/group.controller.js';
 
 const groupRoutes = express.Router();
@@ -29,6 +31,9 @@ groupRoutes.post('/:groupId/join', joinGroup);
 groupRoutes.delete('/:groupId/join', cancelJoinRequest);
 groupRoutes.patch('/:groupId/approve-request/:studentId', approveJoinRequest);
 groupRoutes.patch('/:groupId/reject-request/:studentId', rejectJoinRequest);
+// groupRoutes.post('/assign-role', leaveGroup);
 groupRoutes.post('/leave', leaveGroup);
+groupRoutes.post('/transfer', transferLeadership);
+groupRoutes.delete('/:groupId', allowClassRepsOnly, deleteGroup);
 
 export default groupRoutes;
