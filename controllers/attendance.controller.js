@@ -118,7 +118,7 @@ export const createAttendance = async (req, res) => {
     }
 
     const todaysCount = await Attendance.countDocuments({ groupId, classDate });
-    const attendanceId = generateAttendanceId(
+    const attendanceId = await generateAttendanceId(
       groupId,
       classDate,
       todaysCount + 1
