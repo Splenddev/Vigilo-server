@@ -1,11 +1,12 @@
-// utils/notify/sendUserNotification.js
-import Notification from '../models/notification.model.js';
+// utils/notify/broadcastGroupNotification.js
+import Notification from '../../models/notification.model.js';
 
-export const sendNotification = async ({
+export const sendGroupNotification = async ({
   type,
   message,
-  forUser,
   fromUser = null,
+  targetGroupId,
+  targetRole = null,
   groupId = null,
   relatedId = null,
   relatedType = null,
@@ -16,12 +17,11 @@ export const sendNotification = async ({
   link = '',
   io = null,
 }) => {
-  if (!forUser) return null;
+  if (!targetGroupId) return null;
 
   const notification = await Notification.create({
     type,
     message,
-    for: forUser,
     from: fromUser,
     groupId,
     relatedId,
@@ -31,7 +31,9 @@ export const sendNotification = async ({
     image,
     userMedia,
     link,
-    isBroadcast: false,
+    isBroadcast: true,
+    targetRole,
+    targetGroupId,
   });
 
   if (io) {
@@ -45,12 +47,16 @@ export const sendNotification = async ({
       actionDeny: notification.actionDeny,
       createdAt: notification.createdAt,
       from: fromUser,
+      targetRole,
     };
 
-    io.to(forUser.toString()).emit('notification:new', payload);
+    io.to(`group:${targetGroupId.toString()}`).emit(
+      'notification:new',
+      payload
+    );
 
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`📨 Sent notification to user ${forUser}`);
+      console.log(`📡 Broadcast to group:${targetGroupId}`);
     }
   }
 

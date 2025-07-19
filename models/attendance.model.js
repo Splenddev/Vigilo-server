@@ -77,6 +77,11 @@ const attendanceSchema = new mongoose.Schema({
     end: { type: String, default: '1H30M' },
   },
 
+  initialized: {
+    type: Boolean,
+    default: false,
+  },
+
   attendanceType: {
     type: String,
     enum: ['physical', 'virtual'],

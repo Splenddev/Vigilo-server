@@ -58,11 +58,12 @@ export const createAttendance = async (req, res) => {
 
     const computedClassTime = {
       ...classTime,
-      day: dayOfWeek, // override submitted day
+      day: dayOfWeek,
     };
 
     // ✅ Determine status from date
-    const status = isSameDay(classDateObj, new Date()) ? 'active' : 'upcoming';
+    const isToday = isSameDay(classDateObj, new Date());
+    const status = isToday ? 'active' : 'upcoming';
 
     validateCreateAttendancePayload(req.body, computedClassTime);
 
@@ -118,7 +119,7 @@ export const createAttendance = async (req, res) => {
     }
 
     const todaysCount = await Attendance.countDocuments({ groupId, classDate });
-    const attendanceId = generateAttendanceId(
+    const attendanceId = await generateAttendanceId(
       groupId,
       classDate,
       todaysCount + 1
@@ -138,21 +139,25 @@ export const createAttendance = async (req, res) => {
       markingConfig,
       status,
       createdBy,
+      initialized: isToday, // mark as initialized only if it's active now
       lecturer: {
         name: schedule?.lecturer?.name || lecturer?.name,
         email: schedule?.lecturer?.email || lecturer?.email || '',
       },
     });
 
-    // Insert initial absent records
-    const studentDocs = group.members.map((student) => ({
-      attendanceId: newAttendance._id,
-      studentId: student._id,
-      name: student.name,
-      status: 'absent',
-      role: student.role,
-    }));
-    await StudentAttendance.insertMany(studentDocs);
+    let studentDocs = [];
+
+    if (status === 'active') {
+      studentDocs = group.members.map((student) => ({
+        attendanceId: newAttendance._id,
+        studentId: student._id,
+        name: student.name,
+        status: 'absent',
+        role: student.role,
+      }));
+      await StudentAttendance.insertMany(studentDocs);
+    }
 
     // Send notification to all
     await Promise.all(
@@ -202,7 +207,7 @@ export const createAttendance = async (req, res) => {
         groupId: newAttendance.groupId,
         classDate: newAttendance.classDate,
         status: newAttendance.status,
-        totalStudents: studentDocs.length,
+        totalStudents: studentDocs.length || group.members.length,
         createdAt: newAttendance.createdAt,
       },
     });
