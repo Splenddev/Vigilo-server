@@ -65,7 +65,7 @@ export const enforceAttendanceSettings = (
 
   // ──────────────── GENERAL ────────────────
 
-  if (settings.markOnce && (studentRecord.checkIn || studentRecord.checkOut)) {
+  if (settings.markOnce && (studentRecord.checkIn.time || studentRecord.checkOut.time)) {
     errors.push({
       code: 'MARK_ONCE_ENFORCED',
       message: 'You can only mark attendance once.',
