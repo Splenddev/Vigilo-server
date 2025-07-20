@@ -22,57 +22,94 @@ export const getMyNotifications = async (req, res) => {
   }
 };
 
-// ───────────────────────────────────────────────
-// PATCH /app/notifications/mark-all-read
-export const markAllAsRead = async (req, res) => {
+export const markAsRead = async (req, res) => {
   try {
     const userId = req.user._id;
+    const { id } = req.params;
 
-    await Notification.updateMany(
-      { for: userId, unread: true },
-      { $set: { unread: false } }
-    );
+    if (id) {
+      // 🔁 Toggle unread value for a single notification
+      const notification = await Notification.findOne({ _id: id, for: userId });
 
-    res.status(200).json({
-      success: true,
-      message: 'All notifications marked as read.',
-    });
+      if (!notification) {
+        throw createHttpError(404, 'Notification not found or not yours.');
+      }
+
+      const updated = await Notification.findByIdAndUpdate(
+        id,
+        { $set: { unread: !notification.unread } },
+        { new: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: `Notification marked as ${updated.unread ? 'unread' : 'read'}.`,
+        data: updated,
+      });
+    } else {
+      const notifications = await Notification.find({ for: userId });
+
+      const hasUnread = notifications.some((n) => n.unread);
+      const targetUnread = hasUnread ? false : true;
+
+      const bulkUpdates = notifications.map((n) => ({
+        updateOne: {
+          filter: { _id: n._id },
+          update: { $set: { unread: targetUnread } },
+        },
+      }));
+
+      if (bulkUpdates.length > 0) {
+        await Notification.bulkWrite(bulkUpdates);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'All notifications toggled (read/unread).',
+      });
+    }
   } catch (err) {
-    console.error('Error marking notifications as read:', err);
-    res.status(500).json({
+    console.error('Error toggling notification(s):', err);
+    res.status(err.status || 500).json({
       success: false,
-      message: 'Could not mark notifications as read.',
+      message: err.message || 'Failed to toggle notification(s).',
     });
   }
 };
 
-// ───────────────────────────────────────────────
-// DELETE /app/notifications/:id
 export const deleteNotification = async (req, res) => {
   try {
     const userId = req.user._id;
     const { id } = req.params;
 
-    const notif = await Notification.findOne({
-      _id: id,
-      for: userId,
-    });
+    if (id) {
+      // Delete specific notification
+      const notif = await Notification.findOne({ _id: id, for: userId });
 
-    if (!notif) {
-      throw createHttpError(404, 'Notification not found or not yours.');
+      if (!notif) {
+        throw createHttpError(404, 'Notification not found or not yours.');
+      }
+
+      await notif.deleteOne();
+
+      res.status(200).json({
+        success: true,
+        message: 'Notification deleted.',
+      });
+    } else {
+      // Delete all notifications for user
+      await Notification.deleteMany({ for: userId });
+
+      res.status(200).json({
+        success: true,
+        message: 'All notifications deleted.',
+      });
     }
-
-    await notif.deleteOne();
-
-    res.status(200).json({
-      success: true,
-      message: 'Notification deleted.',
-    });
   } catch (err) {
-    console.error('Error deleting notification:', err);
+    console.error('Error deleting notification(s):', err);
     res.status(err.status || 500).json({
       success: false,
-      message: err.message || 'Failed to delete notification.',
+      message: err.message || 'Failed to delete notification(s).',
     });
   }
 };

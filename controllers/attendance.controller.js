@@ -18,6 +18,7 @@ import StudentAttendance from '../models/student.attendance.model.js';
 
 import { isBefore, isSameDay, parseISO } from 'date-fns';
 import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntryhandlers/emitAttendanceProgress.js';
+import { getFinalStatus } from '../utils/attendance.util.js';
 
 export const createAttendance = async (req, res) => {
   try {
@@ -456,9 +457,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       throw createHttpError(
         403,
         'You are not allowed to mark this attendance.',
-        {
-          code: 'NOT_ALLOWED_TO_MARK',
-        }
+        { code: 'NOT_ALLOWED_TO_MARK' }
       );
     }
 
@@ -469,7 +468,6 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const classEnd = new Date(
       `${attendance.classDate}T${attendance.classTime.end}`
     );
-
     const entryStart = applyTimeOffset(
       classStart,
       attendance.entry?.start || '0H0M'
@@ -498,6 +496,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'Unknown device';
 
+    // ─── Check-In ───
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time) {
         throw createHttpError(409, 'You have already marked check-in.', {
@@ -517,12 +516,18 @@ export const markGeoAttendanceEntry = async (req, res) => {
       studentRecord.arrivalDeltaMinutes = arrivalDeltaMinutes;
       studentRecord.wasWithinRange = wasWithinRange;
       studentRecord.checkInVerified = method === 'geo' ? wasWithinRange : false;
-      studentRecord.status = arrivalDeltaMinutes <= 0 ? 'on_time' : 'late';
       studentRecord.markedBy = 'student';
       studentRecord.deviceInfo = { ip, userAgent, markedAt: new Date() };
 
-      const flagReasons = [];
+      // Set check-in status
+      if (arrivalDeltaMinutes <= 0) {
+        studentRecord.checkInStatus = 'on_time';
+      } else {
+        studentRecord.checkInStatus = 'late';
+      }
 
+      // Flag logic
+      const flagReasons = [];
       if (markTime < entryStart || markTime > entryEnd) {
         flagReasons.push({
           code: 'outside_marking_window',
@@ -543,32 +548,39 @@ export const markGeoAttendanceEntry = async (req, res) => {
       }
 
       const isFlagged = flagReasons.length > 0;
-      studentRecord.flagged = {
-        isFlagged,
-        reasons: flagReasons.map((r) => ({
-          type: r.code,
-          note: r.note,
-          severity: r.severity || 'medium', // optional fallback
-          detectedBy: 'system', // or 'rep' if applicable
-        })),
-        flaggedAt: isFlagged ? new Date() : undefined,
-        flaggedBy: isFlagged ? req.user._id : undefined,
-      };
+      if (isFlagged) {
+        studentRecord.flagged = {
+          isFlagged: true,
+          reasons: flagReasons.map((r) => ({
+            type: r.code,
+            note: r.note,
+            severity: r.severity || 'medium',
+            detectedBy: 'system',
+          })),
+          flaggedAt: new Date(),
+          flaggedBy: userId,
+        };
+      }
+
+      // Final status
+      studentRecord.finalStatus = getFinalStatus({
+        checkInStatus: studentRecord.checkInStatus,
+        checkOutStatus: studentRecord.checkOutStatus,
+        pleaStatus: studentRecord.plea?.status,
+      });
 
       await studentRecord.save();
 
-      // Update Attendance summary
-      if (studentRecord.status === 'on_time') {
+      // Update summary stats
+      if (studentRecord.finalStatus === 'present')
         attendance.summaryStats.onTime += 1;
-      } else if (studentRecord.status === 'late') {
+      else if (studentRecord.finalStatus === 'partial')
         attendance.summaryStats.late += 1;
-      }
       attendance.summaryStats.totalPresent += 1;
       await attendance.save();
 
       emitAttendanceProgress(io, attendance, studentRecord);
 
-      // Notify Rep if flagged
       if (isFlagged) {
         const group = await Group.findById(attendance.groupId).select(
           'createdBy'
@@ -587,7 +599,9 @@ export const markGeoAttendanceEntry = async (req, res) => {
             relatedId: attendance._id,
             relatedType: 'attendance',
             link: `/group/${group._id}/attendance/${attendance._id}`,
-            io: req.io,
+            io,
+            actionApprove: `approve_checkIn`,
+            actionDeny: `deny_checkIn`,
           });
         }
       }
@@ -599,7 +613,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         arrivalDeltaMinutes,
         distanceFromClassMeters,
         wasWithinRange,
-        status: studentRecord.status,
+        status: studentRecord.finalStatus,
         flagged: studentRecord.flagged,
       });
     }
@@ -634,19 +648,26 @@ export const markGeoAttendanceEntry = async (req, res) => {
       studentRecord.departureDeltaMinutes = departureDeltaMinutes;
       studentRecord.durationMinutes = durationMinutes;
 
-      // === Handle Early Leave ===
-      const leftEarlyThreshold = 10;
-      const prevStatus = studentRecord.status;
+      // Set check-out status
+      studentRecord.checkOutStatus =
+        departureDeltaMinutes >= 0 ? 'on_time' : 'left_early';
 
-      if (departureDeltaMinutes > leftEarlyThreshold) {
-        studentRecord.status = 'left_early';
+      // Recalculate final status
+      const prevFinal = studentRecord.finalStatus;
+      studentRecord.finalStatus = getFinalStatus({
+        checkInStatus: studentRecord.checkInStatus,
+        checkOutStatus: studentRecord.checkOutStatus,
+        pleaStatus: studentRecord.plea?.status,
+      });
 
-        // Adjust stats safely
-        if (prevStatus === 'on_time') attendance.summaryStats.onTime -= 1;
-        if (prevStatus === 'late') attendance.summaryStats.late -= 1;
+      // Adjust stats
+      if (prevFinal === 'present') attendance.summaryStats.onTime -= 1;
+      if (prevFinal === 'partial') attendance.summaryStats.late -= 1;
 
-        attendance.summaryStats.leftEarly += 1;
-      }
+      if (studentRecord.finalStatus === 'present')
+        attendance.summaryStats.onTime += 1;
+      else if (studentRecord.finalStatus === 'partial')
+        attendance.summaryStats.late += 1;
 
       await studentRecord.save();
       await attendance.save();
@@ -660,7 +681,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         durationMinutes,
         departureDeltaMinutes,
         distanceFromClassMeters,
-        status: studentRecord.status,
+        status: studentRecord.finalStatus,
       });
     }
 

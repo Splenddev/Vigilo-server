@@ -14,9 +14,22 @@ const studentAttendanceSchema = new mongoose.Schema(
     },
     name: String,
 
-    status: {
+    // Separated statuses
+    checkInStatus: {
       type: String,
-      enum: ['on_time', 'late', 'left_early', 'absent', 'excused'],
+      enum: ['on_time', 'late', 'missed', 'absent'],
+      default: 'absent',
+    },
+    checkOutStatus: {
+      type: String,
+      enum: ['on_time', 'left_early', 'missed'],
+      default: 'missed',
+    },
+
+    // Optional: Final status (can be computed dynamically too)
+    finalStatus: {
+      type: String,
+      enum: ['present', 'partial', 'absent', 'excused'],
       default: 'absent',
     },
 
@@ -28,12 +41,6 @@ const studentAttendanceSchema = new mongoose.Schema(
         longitude: Number,
       },
       distanceFromClassMeters: Number,
-    },
-
-    deviceInfo: {
-      ip: String,
-      userAgent: String,
-      markedAt: Date,
     },
 
     checkOut: {
@@ -52,9 +59,16 @@ const studentAttendanceSchema = new mongoose.Schema(
 
     wasWithinRange: Boolean,
     checkInVerified: Boolean,
+
     markedBy: {
       type: String,
       enum: ['student', 'rep', 'system'],
+    },
+
+    deviceInfo: {
+      ip: String,
+      userAgent: String,
+      markedAt: Date,
     },
 
     warningsIssued: { type: Number, default: 0 },
@@ -79,8 +93,8 @@ const studentAttendanceSchema = new mongoose.Schema(
               'fake_location',
               'geo_disabled',
               'outside_marking_window',
-              'other',
               'joined_after_attendance_created',
+              'other',
             ],
           },
           severity: {
@@ -149,6 +163,7 @@ const studentAttendanceSchema = new mongoose.Schema(
   }
 );
 
+// Unique index to prevent multiple records for same attendance-student pair
 studentAttendanceSchema.index(
   { attendanceId: 1, studentId: 1 },
   { unique: true }
