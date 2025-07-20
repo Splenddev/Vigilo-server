@@ -3,9 +3,17 @@ import Attendance from '../models/attendance.model.js';
 import Group from '../models/group.js';
 import { generateAttendanceId } from '../utils/idGenerator.js';
 import createHttpError from 'http-errors';
-import { validateGeoProximity } from '../utils/geoUtils.js';
-import { applyTimeOffset } from '../utils/helpers.js';
 import { sendNotification } from '../utils/sendNotification.js';
+
+import {
+  getMarkingWindows,
+  getDeviceInfo,
+  evaluateGeo,
+  buildFlagReasons,
+  notifyFlaggedCheckIn,
+  getFinalStatus,
+  enforceAttendanceSettings,
+} from '../utils/attendance.util.js';
 
 import { validateCreateAttendancePayload } from '../validators/attendance.validator.js';
 import { toMinutes } from '../utils/timeUtils.js';
@@ -18,7 +26,6 @@ import StudentAttendance from '../models/student.attendance.model.js';
 
 import { isBefore, isSameDay, parseISO } from 'date-fns';
 import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntryhandlers/emitAttendanceProgress.js';
-import { getFinalStatus } from '../utils/attendance.util.js';
 
 export const createAttendance = async (req, res) => {
   try {
@@ -30,10 +37,11 @@ export const createAttendance = async (req, res) => {
       location,
       entry,
       attendanceType,
-      markingConfig,
+      settings, // ✅ Now expecting a 'settings' object in request
       courseCode,
       courseTitle,
       lecturer,
+      autoEnd,
     } = req.body;
 
     const createdBy = req.user._id;
@@ -62,7 +70,6 @@ export const createAttendance = async (req, res) => {
       day: dayOfWeek,
     };
 
-    // ✅ Determine status from date
     const isToday = isSameDay(classDateObj, new Date());
     const status = isToday ? 'active' : 'upcoming';
 
@@ -85,7 +92,6 @@ export const createAttendance = async (req, res) => {
       }
     }
 
-    // ✅ Check for duplicate
     const duplicate = await checkDuplicateAttendance({
       scheduleId,
       courseCode,
@@ -137,13 +143,41 @@ export const createAttendance = async (req, res) => {
       entry,
       location,
       attendanceType: attendanceType || 'physical',
-      markingConfig,
       status,
+      autoEnd,
+      initialized: isToday,
       createdBy,
-      initialized: isToday, // mark as initialized only if it's active now
+
+      // ✅ Lecturer details
       lecturer: {
         name: schedule?.lecturer?.name || lecturer?.name,
         email: schedule?.lecturer?.email || lecturer?.email || '',
+      },
+
+      // ✅ Settings from schema
+      settings: {
+        markOnce: settings?.markOnce ?? true,
+        allowLateJoiners: settings?.allowLateJoiners ?? true,
+        lateThreshold: settings?.lateThreshold ?? 10,
+        pleaWindowDays: settings?.pleaWindowDays ?? 3,
+        proofRequirement: settings?.proofRequirement ?? 'none',
+
+        enableCheckInOut: settings?.enableCheckInOut ?? false,
+        allowEarlyCheckIn: settings?.allowEarlyCheckIn ?? false,
+        allowLateCheckOut: settings?.allowLateCheckOut ?? true,
+        allowLateCheckIn: settings?.allowLateCheckIn ?? false,
+        allowEarlyCheckOut: settings?.allowEarlyCheckOut ?? true,
+        autoCheckOut: settings?.autoCheckOut ?? true,
+        minimumPresenceDuration: settings?.minimumPresenceDuration ?? 45,
+
+        repeatable: settings?.repeatable ?? false,
+        notifyOnStart: settings?.notifyOnStart ?? true,
+
+        // ✅ Marking Config (nested properly)
+        markingConfig: {
+          type: settings?.markingConfig?.type ?? 'strict',
+          mode: settings?.markingConfig?.mode ?? 'no_code',
+        },
       },
     });
 
@@ -160,7 +194,7 @@ export const createAttendance = async (req, res) => {
       await StudentAttendance.insertMany(studentDocs);
     }
 
-    // Send notification to all
+    // ✅ Send notifications
     await Promise.all(
       group.members.map((member) => {
         const isCreator = member._id.toString() === createdBy.toString();
@@ -180,7 +214,7 @@ export const createAttendance = async (req, res) => {
       })
     );
 
-    // Emit socket event
+    // ✅ Emit socket event
     if (io && groupId) {
       io.to(groupId.toString()).emit('attendance:update', {
         type: 'create',
@@ -436,76 +470,55 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const io = req.io;
 
     const attendance = await Attendance.findById(attendanceId);
-    if (!attendance) {
+    if (!attendance)
       throw createHttpError(404, 'Attendance session not found.', {
         code: 'ATTENDANCE_NOT_FOUND',
       });
-    }
-
-    if (attendance.status !== 'active') {
+    if (attendance.status !== 'active')
       throw createHttpError(403, 'Attendance is closed.', {
         code: 'ATTENDANCE_CLOSED',
       });
-    }
 
     const studentRecord = await StudentAttendance.findOne({
       attendanceId,
       studentId: userId,
     });
-
-    if (!studentRecord) {
+    if (!studentRecord)
       throw createHttpError(
         403,
         'You are not allowed to mark this attendance.',
         { code: 'NOT_ALLOWED_TO_MARK' }
       );
-    }
 
     const markTime = new Date(time);
-    const classStart = new Date(
-      `${attendance.classDate}T${attendance.classTime.start}`
+    const { classStart, classEnd, entryStart, entryEnd } =
+      getMarkingWindows(attendance);
+    const { wasWithinRange, distanceFromClassMeters } = evaluateGeo(
+      method,
+      attendance.location,
+      location
     );
-    const classEnd = new Date(
-      `${attendance.classDate}T${attendance.classTime.end}`
-    );
-    const entryStart = applyTimeOffset(
-      classStart,
-      attendance.entry?.start || '0H0M'
-    );
-    const entryEnd = applyTimeOffset(
-      classStart,
-      attendance.entry?.end || '1H30M'
-    );
+    const deviceInfo = getDeviceInfo(req);
 
-    let wasWithinRange = true;
-    let distanceFromClassMeters = null;
-
-    if (
-      method === 'geo' &&
-      attendance.location?.latitude &&
-      location.latitude
-    ) {
-      const { distanceMeters, isWithinRange } = validateGeoProximity(
-        location,
-        attendance.location
-      );
-      wasWithinRange = isWithinRange;
-      distanceFromClassMeters = distanceMeters;
-    }
-
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const userAgent = req.headers['user-agent'] || 'Unknown device';
-
-    // ─── Check-In ───
     if (mode === 'checkIn') {
-      if (studentRecord.checkIn?.time) {
+      if (studentRecord.checkIn?.time)
         throw createHttpError(409, 'You have already marked check-in.', {
           code: 'ALREADY_CHECKED_IN',
           checkInTime: studentRecord.checkIn.time,
         });
-      }
 
       const arrivalDeltaMinutes = Math.floor((markTime - classStart) / 60000);
+
+      // Before updating studentRecord
+      enforceAttendanceSettings(studentRecord, attendance, {
+        mode: 'checkIn',
+        markTime: markTime.getTime(),
+        entryStart: entryStart.getTime(),
+        entryEnd: entryEnd.getTime(),
+        selfieProof: req.body.selfieProof,
+        joinedAfterAttendanceCreated:
+          studentRecord.joinedAfterAttendanceCreated, // optional: however you define this
+      });
 
       studentRecord.checkIn = {
         time: markTime,
@@ -517,38 +530,20 @@ export const markGeoAttendanceEntry = async (req, res) => {
       studentRecord.wasWithinRange = wasWithinRange;
       studentRecord.checkInVerified = method === 'geo' ? wasWithinRange : false;
       studentRecord.markedBy = 'student';
-      studentRecord.deviceInfo = { ip, userAgent, markedAt: new Date() };
+      studentRecord.deviceInfo = deviceInfo;
+      studentRecord.checkInStatus =
+        arrivalDeltaMinutes <= 0 ? 'on_time' : 'late';
 
-      // Set check-in status
-      if (arrivalDeltaMinutes <= 0) {
-        studentRecord.checkInStatus = 'on_time';
-      } else {
-        studentRecord.checkInStatus = 'late';
-      }
+      const flagReasons = buildFlagReasons({
+        markTime,
+        entryStart,
+        entryEnd,
+        method,
+        wasWithinRange,
+        location,
+      });
 
-      // Flag logic
-      const flagReasons = [];
-      if (markTime < entryStart || markTime > entryEnd) {
-        flagReasons.push({
-          code: 'outside_marking_window',
-          note: 'Marked outside the allowed time window.',
-        });
-      }
-      if (method === 'geo' && !wasWithinRange) {
-        flagReasons.push({
-          code: 'location_mismatch',
-          note: 'User was not within allowed geolocation range.',
-        });
-      }
-      if (method === 'geo' && !location.latitude) {
-        flagReasons.push({
-          code: 'geo_disabled',
-          note: 'Geolocation data missing or not permitted by user.',
-        });
-      }
-
-      const isFlagged = flagReasons.length > 0;
-      if (isFlagged) {
+      if (flagReasons.length > 0) {
         studentRecord.flagged = {
           isFlagged: true,
           reasons: flagReasons.map((r) => ({
@@ -562,48 +557,29 @@ export const markGeoAttendanceEntry = async (req, res) => {
         };
       }
 
-      // Final status
       studentRecord.finalStatus = getFinalStatus({
         checkInStatus: studentRecord.checkInStatus,
         checkOutStatus: studentRecord.checkOutStatus,
         pleaStatus: studentRecord.plea?.status,
       });
 
-      await studentRecord.save();
-
-      // Update summary stats
       if (studentRecord.finalStatus === 'present')
         attendance.summaryStats.onTime += 1;
       else if (studentRecord.finalStatus === 'partial')
         attendance.summaryStats.late += 1;
       attendance.summaryStats.totalPresent += 1;
-      await attendance.save();
 
+      await Promise.all([studentRecord.save(), attendance.save()]);
       emitAttendanceProgress(io, attendance, studentRecord);
 
-      if (isFlagged) {
-        const group = await Group.findById(attendance.groupId).select(
-          'createdBy'
-        );
-        if (group?.createdBy) {
-          const readableReasons = flagReasons
-            .map((r) => `${r.code} - ${r.note}`)
-            .join(', ');
-
-          await sendNotification({
-            type: 'info',
-            message: `${studentRecord.name || 'A student'} was flagged during check-in: ${readableReasons}`,
-            forUser: group.createdBy,
-            fromUser: userId,
-            groupId: group._id,
-            relatedId: attendance._id,
-            relatedType: 'attendance',
-            link: `/group/${group._id}/attendance/${attendance._id}`,
-            io,
-            actionApprove: `approve_checkIn`,
-            actionDeny: `deny_checkIn`,
-          });
-        }
+      if (flagReasons.length > 0) {
+        await notifyFlaggedCheckIn({
+          attendance,
+          studentRecord,
+          flagReasons,
+          userId,
+          io,
+        });
       }
 
       return res.status(200).json({
@@ -618,25 +594,29 @@ export const markGeoAttendanceEntry = async (req, res) => {
       });
     }
 
-    // ─── Check-Out ───
     if (mode === 'checkOut') {
-      if (!studentRecord.checkIn?.time) {
+      if (!studentRecord.checkIn?.time)
         throw createHttpError(403, 'You must check in before checking out.', {
           code: 'CHECK_IN_REQUIRED',
         });
-      }
-
-      if (studentRecord.checkOut?.time) {
+      if (studentRecord.checkOut?.time)
         throw createHttpError(409, 'You have already marked check-out.', {
           code: 'ALREADY_CHECKED_OUT',
           checkOutTime: studentRecord.checkOut.time,
         });
-      }
 
       const departureDeltaMinutes = Math.floor((classEnd - markTime) / 60000);
       const durationMinutes = Math.floor(
         (markTime - new Date(studentRecord.checkIn.time)) / 60000
       );
+
+      enforceAttendanceSettings(studentRecord, attendance, {
+        mode: 'checkOut',
+        markTime: markTime.getTime(),
+        entryStart: entryStart.getTime(),
+        entryEnd: entryEnd.getTime(),
+        durationMinutes,
+      });
 
       studentRecord.checkOut = {
         time: markTime,
@@ -644,15 +624,11 @@ export const markGeoAttendanceEntry = async (req, res) => {
         location,
         distanceFromClassMeters,
       };
-
       studentRecord.departureDeltaMinutes = departureDeltaMinutes;
       studentRecord.durationMinutes = durationMinutes;
-
-      // Set check-out status
       studentRecord.checkOutStatus =
         departureDeltaMinutes >= 0 ? 'on_time' : 'left_early';
 
-      // Recalculate final status
       const prevFinal = studentRecord.finalStatus;
       studentRecord.finalStatus = getFinalStatus({
         checkInStatus: studentRecord.checkInStatus,
@@ -660,18 +636,15 @@ export const markGeoAttendanceEntry = async (req, res) => {
         pleaStatus: studentRecord.plea?.status,
       });
 
-      // Adjust stats
       if (prevFinal === 'present') attendance.summaryStats.onTime -= 1;
-      if (prevFinal === 'partial') attendance.summaryStats.late -= 1;
+      else if (prevFinal === 'partial') attendance.summaryStats.late -= 1;
 
       if (studentRecord.finalStatus === 'present')
         attendance.summaryStats.onTime += 1;
       else if (studentRecord.finalStatus === 'partial')
         attendance.summaryStats.late += 1;
 
-      await studentRecord.save();
-      await attendance.save();
-
+      await Promise.all([studentRecord.save(), attendance.save()]);
       emitAttendanceProgress(io, attendance, studentRecord);
 
       return res.status(200).json({

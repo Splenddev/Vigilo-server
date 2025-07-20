@@ -88,12 +88,11 @@ const attendanceSchema = new mongoose.Schema({
     default: 'physical',
   },
 
-  /// ✅ Core attendance settings
   settings: {
     markOnce: { type: Boolean, default: true },
     allowLateJoiners: { type: Boolean, default: true },
     lateThreshold: { type: Number, default: 10 },
-    pleaWindow: { type: Number, default: 3 },
+    pleaWindowDays: { type: Number, default: 3 },
     proofRequirement: {
       type: String,
       enum: ['none', 'selfie', 'fingerprint'],
@@ -101,16 +100,13 @@ const attendanceSchema = new mongoose.Schema({
     },
 
     enableCheckInOut: { type: Boolean, default: false },
-    allowEarlyCheckInOut: { type: Boolean, default: false },
-    allowLateCheckInOut: { type: Boolean, default: true },
-    minimumPresenceDuration: {
-      type: Number,
-      default: 45, //mins
-    },
+    allowEarlyCheckIn: { type: Boolean, default: false },
+    allowLateCheckOut: { type: Boolean, default: true },
+    allowLateCheckIn: { type: Boolean, default: false },
+    allowEarlyCheckOut: { type: Boolean, default: true },
+    minimumPresenceDuration: { type: Number, default: 45 },
     autoCheckOut: { type: Boolean, default: true },
 
-    deviceLock: { type: Boolean, default: false },
-    ipRestriction: { type: Boolean, default: false },
     repeatable: { type: Boolean, default: false },
     notifyOnStart: { type: Boolean, default: true },
 
@@ -131,7 +127,10 @@ const attendanceSchema = new mongoose.Schema({
   location: {
     latitude: Number,
     longitude: Number,
-    radiusMeters: Number,
+    radiusMeters: {
+      type: Number,
+      default: 30,
+    },
   },
 
   status: {

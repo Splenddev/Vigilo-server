@@ -26,10 +26,9 @@ const studentAttendanceSchema = new mongoose.Schema(
       default: 'missed',
     },
 
-    // Optional: Final status (can be computed dynamically too)
     finalStatus: {
       type: String,
-      enum: ['present', 'partial', 'absent', 'excused'],
+      enum: ['present', 'partial', 'absent', 'excused', 'late'],
       default: 'absent',
     },
 
@@ -74,6 +73,8 @@ const studentAttendanceSchema = new mongoose.Schema(
     warningsIssued: { type: Number, default: 0 },
     penaltyPoints: { type: Number, default: 0 },
     rewardPoints: { type: Number, default: 0 },
+
+    joinedAfterAttendanceCreated: { type: Boolean, default: false },
 
     verifiedByRep: { type: Boolean, default: false },
     notes: String,

@@ -15,10 +15,11 @@ export const closeExpiredAttendances = (io) => {
       // Fetch all active sessions with autoEnd enabled
       const sessions = await Attendance.find({
         status: 'active',
-        // autoEnd: true,attendanceType:'physical'
+        autoEnd: true,
+        attendanceType: 'physical',
       });
 
-      console.log(sessions);
+      // console.log(sessions);
 
       const updates = [];
 
@@ -56,7 +57,6 @@ export const closeExpiredAttendances = (io) => {
           `[${now.toISOString()}] ✅ Auto-closed ${updates.length} expired attendance sessions.`
         );
 
-        // Optionally emit socket event to affected group rooms
         for (const session of sessions) {
           const room = `group:${session.groupId}`;
           io.to(room).emit('attendance:closed', { attendanceId: session._id });
