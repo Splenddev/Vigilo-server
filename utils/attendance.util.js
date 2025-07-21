@@ -65,12 +65,15 @@ export const enforceAttendanceSettings = (
 
   // ──────────────── GENERAL ────────────────
 
-  if (settings.markOnce && (studentRecord.checkIn || studentRecord.checkOut)) {
-    errors.push({
-      code: 'MARK_ONCE_ENFORCED',
-      message: 'You can only mark attendance once.',
-    });
-  }
+  // if (
+  //   settings.markOnce &&
+  //   (studentRecord.checkIn.time || studentRecord.checkOut.time)
+  // ) {
+  //   errors.push({
+  //     code: 'MARK_ONCE_ENFORCED',
+  //     message: 'You can only mark attendance once.',
+  //   });
+  // }
 
   if (
     settings.proofRequirement === 'selfie' &&
@@ -136,9 +139,10 @@ export const enforceAttendanceSettings = (
       settings.minimumPresenceDuration &&
       durationMinutes < settings.minimumPresenceDuration
     ) {
+      const formatMinutes = (min) => `${min} minute${min !== 1 ? 's' : ''}`;
       errors.push({
         code: 'SHORT_DURATION',
-        message: `You must stay at least ${settings.minimumPresenceDuration} minutes.`,
+        message: `You stayed for ${formatMinutes(durationMinutes)}; minimum required is ${formatMinutes(settings.minimumPresenceDuration)}.`,
       });
     }
   }
