@@ -52,7 +52,7 @@ export const enforceAttendanceSettings = (
 ) => {
   const {
     mode, // 'checkIn' or 'checkOut'
-    markTime, // in minutes
+    markTime,
     durationMinutes,
     entryStart,
     entryEnd,
@@ -63,17 +63,14 @@ export const enforceAttendanceSettings = (
   const settings = attendance.settings || {};
   const errors = [];
 
-  // ──────────────── GENERAL ────────────────
+  const toTime = (value) =>
+    typeof value === 'number' ? value : new Date(value).getTime();
 
-  // if (
-  //   settings.markOnce &&
-  //   (studentRecord.checkIn.time || studentRecord.checkOut.time)
-  // ) {
-  //   errors.push({
-  //     code: 'MARK_ONCE_ENFORCED',
-  //     message: 'You can only mark attendance once.',
-  //   });
-  // }
+  const markTimestamp = toTime(markTime);
+  const entryStartTime = toTime(entryStart);
+  const entryEndTime = toTime(entryEnd);
+
+  // ──────────────── GENERAL ────────────────
 
   if (
     settings.proofRequirement === 'selfie' &&
@@ -82,7 +79,8 @@ export const enforceAttendanceSettings = (
   ) {
     errors.push({
       code: 'PROOF_REQUIRED',
-      message: 'Selfie proof is required to mark attendance.',
+      message:
+        'Selfie proof is required to mark attendance for this session. Please upload a valid selfie before checking in.',
     });
   }
 
@@ -90,23 +88,24 @@ export const enforceAttendanceSettings = (
     errors.push({
       code: 'LATE_JOIN_BLOCKED',
       message:
-        'You joined the group after attendance was created and cannot mark.',
+        'You joined this group after attendance for the session was created. Late joiners are not allowed to mark attendance for this session.',
     });
   }
 
-  // ─── CHECK-IN ───
+  // ──────────────── CHECK-IN ────────────────
+
   if (mode === 'checkIn') {
-    if (markTime < entryStart && !settings.allowEarlyCheckInOut) {
+    if (markTimestamp < entryStartTime && !settings.allowEarlyCheckInOut) {
       errors.push({
         code: 'TOO_EARLY_CHECKIN',
-        message: 'Check-in before allowed time.',
+        message: `Check-in attempt was made before the allowed time. You tried to check in at ${new Date(markTimestamp).toLocaleTimeString()}, but check-in opens at ${new Date(entryStartTime).toLocaleTimeString()}.`,
       });
     }
 
-    if (markTime > entryEnd && !settings.allowLateCheckInOut) {
+    if (markTimestamp > entryEndTime && !settings.allowLateCheckInOut) {
       errors.push({
         code: 'TOO_LATE_CHECKIN',
-        message: 'Check-in after allowed time.',
+        message: `Check-in attempt was made after the allowed window. You tried to check in at ${new Date(markTimestamp).toLocaleTimeString()}, but check-in closed at ${new Date(entryEndTime).toLocaleTimeString()}.`,
       });
     }
   }
@@ -117,21 +116,22 @@ export const enforceAttendanceSettings = (
     if (!settings.enableCheckInOut) {
       errors.push({
         code: 'CHECK_OUT_DISABLED',
-        message: 'Check-out is disabled for this attendance.',
+        message:
+          'Check-out is not enabled for this attendance session. You are only required to check in.',
       });
     }
 
-    if (markTime < entryStart && !settings.allowEarlyCheckOut) {
+    if (markTimestamp < entryStartTime && !settings.allowEarlyCheckOut) {
       errors.push({
         code: 'TOO_EARLY_CHECKOUT',
-        message: 'You are checking out too early.',
+        message: `You attempted to check out before the allowed time. Your attempt was at ${new Date(markTimestamp).toLocaleTimeString()}, but check-out is only allowed from ${new Date(entryStartTime).toLocaleTimeString()}.`,
       });
     }
 
-    if (markTime > entryEnd && !settings.allowLateCheckOut) {
+    if (markTimestamp > entryEndTime && !settings.allowLateCheckOut) {
       errors.push({
         code: 'TOO_LATE_CHECKOUT',
-        message: 'You are checking out after the allowed window.',
+        message: `You attempted to check out after the allowed time. You checked out at ${new Date(markTimestamp).toLocaleTimeString()}, but check-out closed at ${new Date(entryEndTime).toLocaleTimeString()}.`,
       });
     }
 
@@ -142,7 +142,11 @@ export const enforceAttendanceSettings = (
       const formatMinutes = (min) => `${min} minute${min !== 1 ? 's' : ''}`;
       errors.push({
         code: 'SHORT_DURATION',
-        message: `You stayed for ${formatMinutes(durationMinutes)}; minimum required is ${formatMinutes(settings.minimumPresenceDuration)}.`,
+        message: `You were present for only ${formatMinutes(
+          durationMinutes
+        )}, but the required minimum stay is ${formatMinutes(
+          settings.minimumPresenceDuration
+        )}. This may indicate that you left early or didn't stay long enough.`,
       });
     }
   }
@@ -154,7 +158,6 @@ export const enforceAttendanceSettings = (
     throw createHttpError(403, message, { code });
   }
 };
-
 export const getMarkingWindows = (attendance) => {
   const classStart = new Date(
     `${attendance.classDate}T${attendance.classTime.start}`
