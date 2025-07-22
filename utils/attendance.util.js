@@ -52,7 +52,7 @@ export const enforceAttendanceSettings = (
 ) => {
   const {
     mode, // 'checkIn' or 'checkOut'
-    markTime, // in minutes
+    markTime, // in minutes (from attendance start)
     durationMinutes,
     entryStart,
     entryEnd,
@@ -63,17 +63,7 @@ export const enforceAttendanceSettings = (
   const settings = attendance.settings || {};
   const errors = [];
 
-  // ──────────────── GENERAL ────────────────
-
-  // if (
-  //   settings.markOnce &&
-  //   (studentRecord.checkIn.time || studentRecord.checkOut.time)
-  // ) {
-  //   errors.push({
-  //     code: 'MARK_ONCE_ENFORCED',
-  //     message: 'You can only mark attendance once.',
-  //   });
-  // }
+  // ──────────────── GENERAL RULES ────────────────
 
   if (
     settings.proofRequirement === 'selfie' &&
@@ -82,7 +72,7 @@ export const enforceAttendanceSettings = (
   ) {
     errors.push({
       code: 'PROOF_REQUIRED',
-      message: 'Selfie proof is required to mark attendance.',
+      message: 'Selfie proof is mandatory for check-in but was not provided.',
     });
   }
 
@@ -90,48 +80,50 @@ export const enforceAttendanceSettings = (
     errors.push({
       code: 'LATE_JOIN_BLOCKED',
       message:
-        'You joined the group after attendance was created and cannot mark.',
+        'You joined this group after the attendance session started and are not allowed to mark attendance for it.',
     });
   }
 
-  // ─── CHECK-IN ───
+  // ──────────────── CHECK-IN RULES ────────────────
+
   if (mode === 'checkIn') {
     if (markTime < entryStart && !settings.allowEarlyCheckInOut) {
       errors.push({
         code: 'TOO_EARLY_CHECKIN',
-        message: 'Check-in before allowed time.',
+        message: `Check-in attempted ${entryStart - markTime} minutes earlier than allowed. Early check-in is not permitted.`,
       });
     }
 
     if (markTime > entryEnd && !settings.allowLateCheckInOut) {
       errors.push({
         code: 'TOO_LATE_CHECKIN',
-        message: 'Check-in after allowed time.',
+        message: `Check-in attempted ${markTime - entryEnd} minutes after the allowed time window. Late check-in is not permitted.`,
       });
     }
   }
 
-  // ──────────────── CHECK-OUT ────────────────
+  // ──────────────── CHECK-OUT RULES ────────────────
 
   if (mode === 'checkOut') {
     if (!settings.enableCheckInOut) {
       errors.push({
         code: 'CHECK_OUT_DISABLED',
-        message: 'Check-out is disabled for this attendance.',
+        message:
+          'This attendance session does not allow check-out. Please contact your class rep.',
       });
     }
 
     if (markTime < entryStart && !settings.allowEarlyCheckOut) {
       errors.push({
         code: 'TOO_EARLY_CHECKOUT',
-        message: 'You are checking out too early.',
+        message: `You are attempting to check out ${entryStart - markTime} minutes earlier than the allowed time. Early check-out is not enabled.`,
       });
     }
 
     if (markTime > entryEnd && !settings.allowLateCheckOut) {
       errors.push({
         code: 'TOO_LATE_CHECKOUT',
-        message: 'You are checking out after the allowed window.',
+        message: `You are attempting to check out ${markTime - entryEnd} minutes after the permitted time. Late check-out is not enabled.`,
       });
     }
 
@@ -142,12 +134,12 @@ export const enforceAttendanceSettings = (
       const formatMinutes = (min) => `${min} minute${min !== 1 ? 's' : ''}`;
       errors.push({
         code: 'SHORT_DURATION',
-        message: `You stayed for ${formatMinutes(durationMinutes)}; minimum required is ${formatMinutes(settings.minimumPresenceDuration)}.`,
+        message: `You stayed for ${formatMinutes(durationMinutes)}, but the minimum required presence is ${formatMinutes(settings.minimumPresenceDuration)}.`,
       });
     }
   }
 
-  // ──────────────── FINAL ────────────────
+  // ──────────────── FINAL CHECK ────────────────
 
   if (errors.length > 0) {
     const { code, message } = errors[0];
@@ -156,12 +148,18 @@ export const enforceAttendanceSettings = (
 };
 
 export const getMarkingWindows = (attendance) => {
+  const [year, month, day] = attendance.classDate.split('-').map(Number);
+  const [startHour, startMinute] = attendance.classTime.start
+    .split(':')
+    .map(Number);
+  const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
+
+  // Class start and end times in UTC
   const classStart = new Date(
-    `${attendance.classDate}T${attendance.classTime.start}`
+    Date.UTC(year, month - 1, day, startHour, startMinute)
   );
-  const classEnd = new Date(
-    `${attendance.classDate}T${attendance.classTime.end}`
-  );
+  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
+
   const entryStart = applyTimeOffset(
     classStart,
     attendance.entry?.start || '0H0M'
@@ -170,6 +168,7 @@ export const getMarkingWindows = (attendance) => {
     classStart,
     attendance.entry?.end || '1H30M'
   );
+
   return { classStart, classEnd, entryStart, entryEnd };
 };
 
