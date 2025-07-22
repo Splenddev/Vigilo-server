@@ -490,9 +490,17 @@ export const markGeoAttendanceEntry = async (req, res) => {
         { code: 'NOT_ALLOWED_TO_MARK' }
       );
 
-    const markTime = new Date(time);
+    const markTime = new Date(new Date(time).toISOString());
     const { classStart, classEnd, entryStart, entryEnd } =
       getMarkingWindows(attendance);
+
+    console.log({
+      nowServerUTC: new Date().toISOString(),
+      receivedTime: time,
+      parsedMarkTime: markTime.toISOString(),
+      entryStart: entryStart.toISOString(),
+      entryEnd: entryEnd.toISOString(),
+    });
     const { wasWithinRange, distanceFromClassMeters } = evaluateGeo(
       method,
       attendance.location,
