@@ -24,8 +24,22 @@ import {
 
 import StudentAttendance from '../models/student.attendance.model.js';
 
-import { isBefore, isSameDay, parseISO } from 'date-fns';
+import {
+  isSameDay,
+  isBefore,
+  parseISO,
+  addMinutes,
+  addHours,
+  differenceInMinutes,
+  differenceInDays,
+  setHours,
+  setMinutes,
+  isAfter,
+  endOfDay,
+  min,
+} from 'date-fns';
 import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntryhandlers/emitAttendanceProgress.js';
+import { applyTimeOffset } from '../utils/helpers.js';
 
 export const createAttendance = async (req, res) => {
   try {
@@ -37,7 +51,7 @@ export const createAttendance = async (req, res) => {
       location,
       entry,
       attendanceType,
-      settings, // ✅ Now expecting a 'settings' object in request
+      settings,
       courseCode,
       courseTitle,
       lecturer,
@@ -188,8 +202,8 @@ export const createAttendance = async (req, res) => {
         attendanceId: newAttendance._id,
         studentId: student._id,
         name: student.name,
-        status: 'absent',
         role: student.role,
+        studentMatric: student.matricNumber,
       }));
       await StudentAttendance.insertMany(studentDocs);
     }
@@ -494,19 +508,89 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const { classStart, classEnd, entryStart, entryEnd } =
       getMarkingWindows(attendance);
 
-    console.log({
-      nowServerUTC: new Date().toISOString(),
-      receivedTime: time,
-      parsedMarkTime: markTime.toISOString(),
-      entryStart: entryStart.toISOString(),
-      entryEnd: entryEnd.toISOString(),
-    });
     const { wasWithinRange, distanceFromClassMeters } = evaluateGeo(
       method,
       attendance.location,
       location
     );
     const deviceInfo = getDeviceInfo(req);
+
+    if (attendance.reopened) {
+      const alreadyCheckedIn = !!studentRecord.checkIn?.time;
+      const alreadyCheckedOut = !!studentRecord.checkOut?.time;
+
+      const metaLog = [];
+
+      if (!alreadyCheckedIn) {
+        studentRecord.checkIn = {
+          time: markTime,
+          method,
+          location,
+          distanceFromClassMeters,
+        };
+        studentRecord.checkInStatus = 'on_time';
+        studentRecord.checkInVerified = true;
+
+        metaLog.push({
+          type: 'status_changed',
+          description: 'Session reopened. Skipped check-out.',
+          data: {
+            sessionStatus: 'on_time',
+            markTime,
+          },
+          createdBy: 'system',
+          createdAt: new Date(),
+        });
+
+        studentRecord.finalStatus = 'present';
+        attendance.summaryStats.totalPresent += 1;
+        attendance.summaryStats.onTime += 1;
+      } else if (!alreadyCheckedOut) {
+        studentRecord.checkOut = {
+          time: markTime,
+          method,
+          location,
+          distanceFromClassMeters,
+        };
+        studentRecord.checkOutVerified = true;
+        studentRecord.checkInStatus = 'late1';
+
+        metaLog.push({
+          type: 'status_changed',
+          description: 'Reopened session. Late check-out recorded.',
+          data: {
+            sessionStatus: 'checked_out_late',
+            markTime,
+          },
+          createdBy: 'system',
+          createdAt: new Date(),
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'You have already checked in and checked out.',
+        });
+      }
+
+      // Merge with existing meta if needed
+      studentRecord.meta = [...(studentRecord.meta || []), ...metaLog];
+
+      await studentRecord.save();
+      await attendance.save();
+
+      emitAttendanceProgress(io, attendance, studentRecord);
+
+      return res.status(200).json({
+        success: true,
+        message: alreadyCheckedIn
+          ? 'Late check-out recorded due to session being reopened.'
+          : 'Check-in and check-out skipped due to session being reopened.',
+        checkInTime: studentRecord.checkIn?.time,
+        checkOutTime: studentRecord.checkOut?.time,
+        status: studentRecord.finalStatus,
+        meta: studentRecord.meta,
+      });
+    }
 
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time)
@@ -517,7 +601,6 @@ export const markGeoAttendanceEntry = async (req, res) => {
 
       const arrivalDeltaMinutes = Math.floor((markTime - classStart) / 60000);
 
-      // Before updating studentRecord
       enforceAttendanceSettings(studentRecord, attendance, {
         mode: 'checkIn',
         markTime: markTime.getTime(),
@@ -525,7 +608,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         entryEnd: entryEnd.getTime(),
         selfieProof: req.body.selfieProof,
         joinedAfterAttendanceCreated:
-          studentRecord.joinedAfterAttendanceCreated, // optional: however you define this
+          studentRecord.joinedAfterAttendanceCreated, // optional
       });
 
       studentRecord.checkIn = {
@@ -602,6 +685,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       });
     }
 
+    // Proceed with check-out process if session is not reopened
     if (mode === 'checkOut') {
       if (!studentRecord.checkIn?.time)
         throw createHttpError(403, 'You must check in before checking out.', {
@@ -855,6 +939,11 @@ export const deleteAttendance = async (req, res) => {
 export const reopenAttendanceSession = async (req, res) => {
   try {
     const { attendanceId } = req.params;
+    const {
+      durationMinutes = '0H15M',
+      allowedOptions = [],
+      customMatricNumbers = [],
+    } = req.body;
     const { io } = req;
 
     if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
@@ -865,7 +954,7 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    const session = await Attendance.findById(attendanceId);
+    const session = await Attendance.findById(attendanceId).lean();
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -882,21 +971,128 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    const classDate = new Date(session.classDate);
-    const daysSince =
-      (Date.now() - classDate.getTime()) / (1000 * 60 * 60 * 24);
+    const classDateObj = parseISO(session.classDate);
+    const now = new Date();
+    const daysSince = differenceInDays(now, classDateObj);
+
     if (daysSince > 5) {
       return res.status(403).json({
         success: false,
         code: 'OLD_SESSION',
-        message: 'Cannot reopen old sessions.',
+        message: `Cannot reopen sessions older than ${daysSince}.`,
       });
     }
 
+    const groupId = session.groupId.toString();
+    const allStudentRecords = await StudentAttendance.find({
+      attendanceId: session._id,
+    });
+
+    let allowedStudentIds = [];
+
+    const allOptionSelected = allowedOptions.includes('all');
+
+    const filters = {
+      approvedPleas: [],
+      missedCheckouts: [],
+      noCheckInOrOut: [],
+      lateCheckIns: [],
+      geoFailed: [],
+      customMatric: [],
+    };
+    if (allOptionSelected) {
+      allowedStudentIds = allStudentRecords.map((record) =>
+        record.student.toString()
+      );
+    } else {
+      //  if (allowedOptions.includes('approved_pleas')) {
+      //    const pleas = await Plea.find({
+      //      attendance: attendanceId,
+      //      status: 'approved',
+      //    }).lean();
+
+      //    filters.approvedPleas = pleas.map((plea) => plea.student.toString());
+      //  }
+
+      if (allowedOptions.includes('forgot_checkout')) {
+        filters.missedCheckouts = allStudentRecords
+          .filter((r) => r.checkIn.time && r.checkOutStatus === 'missed')
+          .map((r) => r.studentId.toString());
+      }
+
+      if (allowedOptions.includes('late_checkin')) {
+        filters.lateCheckIns = allStudentRecords
+          .filter((r) => r.checkInStatus === 'late')
+          .map((r) => r.studentId.toString());
+      }
+
+      if (
+        allowedOptions.includes('custom_matric') &&
+        Array.isArray(customMatricNumbers)
+      ) {
+        const customStudents = allStudentRecords.filter((r) =>
+          customMatricNumbers.includes(r.studentMatric)
+        );
+        filters.customMatric = customStudents.map((r) => r.student.toString());
+      }
+
+      const merged = [
+        ...filters.approvedPleas,
+        ...filters.missedCheckouts,
+        ...filters.noCheckInOrOut,
+        ...filters.lateCheckIns,
+        ...filters.geoFailed,
+        ...filters.customMatric,
+      ];
+
+      allowedStudentIds = [...new Set(merged)];
+    }
+
+    // 🕐 Compute class start time
+    const [startHour, startMin] = session.classTime.start
+      .split(':')
+      .map(Number);
+    const classStartTime = setHours(
+      setMinutes(classDateObj, startMin),
+      startHour
+    );
+
+    // 🕒 Original entry timing
+    const originalEntryStart = applyTimeOffset(
+      classStartTime,
+      session.entry.start
+    );
+    const originalEntryEnd = applyTimeOffset(
+      originalEntryStart,
+      session.entry.end
+    );
+
+    // ⏱️ Parse reopen duration
+    const match = durationMinutes.match(/(?:(\d+)H)?(?:(\d+)M)?/i);
+    const reopenH = parseInt(match?.[1] || '0', 10);
+    const reopenM = parseInt(match?.[2] || '0', 10);
+
+    // 🕔 Compute capped reopen end time
+    const rawReopenEnd = addMinutes(addHours(now, reopenH), reopenM);
+    const dayEnd = endOfDay(classDateObj);
+    const reopenEnd = min([rawReopenEnd, dayEnd]);
+
+    // Only update entry.end if now > original entryEnd
+    if (isAfter(now, originalEntryEnd)) {
+      const diffMins = differenceInMinutes(reopenEnd, classStartTime);
+      const newH = Math.floor(diffMins / 60);
+      const newM = diffMins % 60;
+      session.entry.end = `${newH}H${newM}M`;
+    }
+
+    session.reopenedUntil = reopenEnd;
+    session.reopenDuration = durationMinutes;
     session.status = 'active';
+    session.reopened = true;
     await session.save();
 
-    const group = await Group.findById(session.groupId);
+    // 📢 Notify class rep
+    const group = await Group.findById(groupId);
     const classRepId = group?.createdBy || group?.classRep;
 
     if (classRepId) {
@@ -911,7 +1107,6 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    // 🔔 Emit socket event to group room
     io?.to(session.groupId.toString()).emit('attendance:reopened', {
       attendanceId: session._id,
       groupId: session.groupId,

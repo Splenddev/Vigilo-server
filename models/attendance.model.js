@@ -82,6 +82,28 @@ const attendanceSchema = new mongoose.Schema({
     default: false,
   },
 
+  reopened: {
+    type: Boolean,
+    default: false,
+  },
+
+  reopenDuration: {
+    type: String,
+    default: '0H30M',
+  },
+
+  reopenAllowedStudents: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  ],
+
+  reopenedUntil: {
+    type: Date,
+    default: null,
+  },
+
   attendanceType: {
     type: String,
     enum: ['physical', 'virtual'],

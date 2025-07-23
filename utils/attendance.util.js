@@ -52,16 +52,25 @@ export const enforceAttendanceSettings = (
 ) => {
   const {
     mode, // 'checkIn' or 'checkOut'
-    markTime, // in minutes (from attendance start)
+    markTime, // Date object
     durationMinutes,
-    entryStart,
-    entryEnd,
+    entryStart, // Date object
+    entryEnd, // Date object
     selfieProof,
     joinedAfterAttendanceCreated,
   } = context;
 
   const settings = attendance.settings || {};
   const errors = [];
+
+  const formatTime = (date) =>
+    new Date(date).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'UTC',
+    });
+
+  const diffMinutes = (a, b) => Math.round((a - b) / 60000);
 
   // ──────────────── GENERAL RULES ────────────────
 
@@ -87,17 +96,25 @@ export const enforceAttendanceSettings = (
   // ──────────────── CHECK-IN RULES ────────────────
 
   if (mode === 'checkIn') {
-    if (markTime < entryStart && !settings.allowEarlyCheckInOut) {
+    if (markTime < entryStart && !settings.allowEarlyCheckIn) {
+      const delta = diffMinutes(entryStart, markTime);
       errors.push({
         code: 'TOO_EARLY_CHECKIN',
-        message: `Check-in attempted ${entryStart - markTime} minutes earlier than allowed. Early check-in is not permitted.`,
+        message:
+          `Check-in attempted ${delta} minutes earlier than allowed. Early check-in is not permitted.\n` +
+          `➡️ Your check-in time: ${formatTime(markTime)} UTC\n` +
+          `🕒 Allowed window: ${formatTime(entryStart)} - ${formatTime(entryEnd)} UTC`,
       });
     }
 
-    if (markTime > entryEnd && !settings.allowLateCheckInOut) {
+    if (markTime > entryEnd && !settings.allowLateCheckIn) {
+      const delta = diffMinutes(markTime, entryEnd);
       errors.push({
         code: 'TOO_LATE_CHECKIN',
-        message: `Check-in attempted ${markTime - entryEnd} minutes after the allowed time window. Late check-in is not permitted.`,
+        message:
+          `Check-in attempted ${delta} minutes after the allowed time window. Late check-in is not permitted.\n` +
+          `➡️ Your check-in time: ${formatTime(markTime)} UTC\n` +
+          `🕒 Allowed window: ${formatTime(entryStart)} - ${formatTime(entryEnd)} UTC`,
       });
     }
   }
@@ -114,20 +131,29 @@ export const enforceAttendanceSettings = (
     }
 
     if (markTime < entryStart && !settings.allowEarlyCheckOut) {
+      const delta = diffMinutes(entryStart, markTime);
       errors.push({
         code: 'TOO_EARLY_CHECKOUT',
-        message: `You are attempting to check out ${entryStart - markTime} minutes earlier than the allowed time. Early check-out is not enabled.`,
+        message:
+          `Check-out attempted ${delta} minutes earlier than allowed. Early check-out is not permitted.\n` +
+          `➡️ Your check-out time: ${formatTime(markTime)} UTC\n` +
+          `🕒 Allowed window: ${formatTime(entryStart)} - ${formatTime(entryEnd)} UTC`,
       });
     }
 
     if (markTime > entryEnd && !settings.allowLateCheckOut) {
+      const delta = diffMinutes(markTime, entryEnd);
       errors.push({
         code: 'TOO_LATE_CHECKOUT',
-        message: `You are attempting to check out ${markTime - entryEnd} minutes after the permitted time. Late check-out is not enabled.`,
+        message:
+          `Check-out attempted ${delta} minutes after the allowed time window. Late check-out is not permitted.\n` +
+          `➡️ Your check-out time: ${formatTime(markTime)} UTC\n` +
+          `🕒 Allowed window: ${formatTime(entryStart)} - ${formatTime(entryEnd)} UTC`,
       });
     }
 
     if (
+      !attendance.reopened &&
       settings.minimumPresenceDuration &&
       durationMinutes < settings.minimumPresenceDuration
     ) {
@@ -154,20 +180,22 @@ export const getMarkingWindows = (attendance) => {
     .map(Number);
   const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
 
-  // Class start and end times in UTC
   const classStart = new Date(
     Date.UTC(year, month - 1, day, startHour, startMinute)
   );
   const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
-
   const entryStart = applyTimeOffset(
     classStart,
     attendance.entry?.start || '0H0M'
   );
-  const entryEnd = applyTimeOffset(
-    classStart,
-    attendance.entry?.end || '1H30M'
-  );
+  let entryEnd = applyTimeOffset(classStart, attendance.entry?.end || '1H30M');
+
+  if (
+    attendance.reopenedUntil &&
+    new Date(attendance.reopenedUntil) > entryEnd
+  ) {
+    entryEnd = new Date(attendance.reopenedUntil);
+  }
 
   return { classStart, classEnd, entryStart, entryEnd };
 };

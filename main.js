@@ -20,6 +20,7 @@ import courseRouter from './routes/course.routes.js';
 import notificationRouter from './routes/notifications.routes.js';
 
 import { errorHandler } from './middlewares/errorHandler.js';
+import validatorRouter from './routes/validators.routes.js';
 
 dotenv.config();
 const app = express();
@@ -79,6 +80,7 @@ app.use('/app/groups', groupRoutes);
 app.use('/app/schedule', scheduleRoutes);
 app.use('/app/attendance', attendanceRoutes);
 app.use('/app/courses', courseRouter);
+app.use('/app/validate', validatorRouter);
 app.use('/app/notifications', notificationRouter);
 
 // ✅ Start all cron jobs

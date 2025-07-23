@@ -203,7 +203,14 @@ export const joinGroup = async (req, res) => {
 
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  const { _id: userId, name, department, level, profilePicture } = user;
+  const {
+    _id: userId,
+    name,
+    department,
+    level,
+    profilePicture,
+    matricNumber,
+  } = user;
 
   try {
     const group = await Group.findById(groupId).populate('createdBy');
@@ -260,6 +267,7 @@ export const joinGroup = async (req, res) => {
       avatar: profilePicture,
       status: 'pending',
       requestedAt: new Date(),
+      matricNumber,
     });
     await group.save();
 

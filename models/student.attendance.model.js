@@ -13,6 +13,8 @@ const studentAttendanceSchema = new mongoose.Schema(
       required: true,
     },
     name: String,
+    studentMatric: String,
+    role: String,
 
     // Separated statuses
     checkInStatus: {
@@ -25,6 +27,42 @@ const studentAttendanceSchema = new mongoose.Schema(
       enum: ['on_time', 'left_early', 'missed'],
       default: 'missed',
     },
+
+    meta: [
+      {
+        type: {
+          type: String,
+          enum: [
+            'check_in',
+            'check_out',
+            'system_update',
+            'rep_override',
+            'geo_validation',
+            'manual_entry',
+            'plea_submitted',
+            'penalty_applied',
+            'reward_granted',
+            'status_changed',
+            'range_check',
+            'device_check',
+            'note_added',
+            'other',
+          ],
+          required: true,
+        },
+        description: String,
+        data: mongoose.Schema.Types.Mixed,
+        createdBy: {
+          type: String,
+          enum: ['system', 'student', 'rep'],
+          default: 'system',
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
 
     finalStatus: {
       type: String,
