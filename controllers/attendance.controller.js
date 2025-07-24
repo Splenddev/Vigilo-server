@@ -504,7 +504,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         { code: 'NOT_ALLOWED_TO_MARK' }
       );
 
-    const markTime = new Date(new Date(time).toISOString());
+    const markTime = new Date().toISOString();
     const { classStart, classEnd, entryStart, entryEnd } =
       getMarkingWindows(attendance);
 
@@ -954,7 +954,7 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
-    const session = await Attendance.findById(attendanceId).lean();
+    const session = await Attendance.findById(attendanceId);
     if (!session) {
       return res.status(404).json({
         success: false,
