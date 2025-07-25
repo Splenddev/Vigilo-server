@@ -2,42 +2,33 @@ import { parse, isAfter } from 'date-fns';
 import Attendance from '../models/attendance.model.js';
 import cron from 'node-cron';
 
-/**
- * Closes attendance sessions that are still "active" but have passed their end time.
- */
 export const closeExpiredAttendances = (io) => {
   cron.schedule('* * * * *', async () => {
-    console.log('🕒 Checking for expired attendances to close...');
+    const now = new Date();
+    console.log('🕒 [closeExpiredAttendances] Running scheduled task...');
 
     try {
-      const now = new Date();
-
-      // Fetch all active sessions with autoEnd enabled
-      const sessions = await Attendance.find({
+      // 1. Close regular expired sessions
+      const activeSessions = await Attendance.find({
         status: 'active',
         autoEnd: true,
         attendanceType: 'physical',
+        reopened: { $ne: true },
+        'classTime.end': { $exists: true, $ne: null },
       });
 
-      // console.log(sessions);
+      const expiredUpdates = [];
+      const expiredIds = [];
 
-      const updates = [];
-
-      for (const session of sessions) {
-        const { classDate, classTime } = session;
-
-        // Defensive check
-        if (!classTime?.end) continue;
-
-        // Build datetime from classDate and classTime.end (e.g., "2025-07-19 14:00")
+      for (const session of activeSessions) {
         const endDateTime = parse(
-          `${classDate} ${classTime.end}`,
+          `${session.classDate} ${session.classTime.end}`,
           'yyyy-MM-dd HH:mm',
           new Date()
         );
 
         if (isAfter(now, endDateTime)) {
-          updates.push({
+          expiredUpdates.push({
             updateOne: {
               filter: { _id: session._id },
               update: {
@@ -48,26 +39,66 @@ export const closeExpiredAttendances = (io) => {
               },
             },
           });
+          expiredIds.push(session._id.toString());
         }
       }
 
-      if (updates.length > 0) {
-        await Attendance.bulkWrite(updates);
+      // 2. Close reopened sessions whose reopenedUntil has passed
+      const reopenedSessions = await Attendance.find({
+        status: 'active',
+        reopened: true,
+        reopenedUntil: { $ne: null, $lte: now },
+      });
+
+      const reopenedUpdates = [];
+      const reopenedIds = [];
+
+      for (const session of reopenedSessions) {
+        reopenedUpdates.push({
+          updateOne: {
+            filter: { _id: session._id },
+            update: {
+              $set: {
+                status: 'closed',
+                reopened: false,
+                reopenedUntil: null,
+              },
+            },
+          },
+        });
+        reopenedIds.push(session._id.toString());
+      }
+
+      const allUpdates = [...expiredUpdates, ...reopenedUpdates];
+      const totalClosed = allUpdates.length;
+
+      if (totalClosed > 0) {
+        await Attendance.bulkWrite(allUpdates);
         console.log(
-          `[${now.toISOString()}] ✅ Auto-closed ${updates.length} expired attendance sessions.`
+          `[${now.toISOString()}] ✅ Closed ${totalClosed} session(s) [${expiredIds.length} expired, ${reopenedIds.length} reopened].`
         );
 
-        for (const session of sessions) {
-          const room = `group:${session.groupId}`;
-          io.to(room).emit('attendance:closed', { attendanceId: session._id });
+        const allClosedSessions = [...activeSessions, ...reopenedSessions];
+        for (const session of allClosedSessions) {
+          const id = session._id.toString();
+          if (expiredIds.includes(id) || reopenedIds.includes(id)) {
+            const room = `group:${session.groupId}`;
+            io.to(room).emit('attendance:closed', {
+              attendanceId: session._id,
+              closedAt: now.toISOString(),
+              reason: reopenedIds.includes(id)
+                ? 'reopened-ended'
+                : 'time-expired',
+            });
+          }
         }
       } else {
         console.log(
-          `[${now.toISOString()}] ℹ️ No expired attendance sessions to close.`
+          `[${now.toISOString()}] ℹ️ No sessions to close this minute.`
         );
       }
     } catch (err) {
-      console.error('❌ Error in closeExpiredAttendances:', err);
+      console.error('❌ Error in closeExpiredAttendances:', err.message || err);
     }
   });
 };

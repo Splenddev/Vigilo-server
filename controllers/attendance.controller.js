@@ -347,7 +347,7 @@ export const getGroupAttendanceTab = async (req, res) => {
     const totalSessions = closedAttendances.length;
     const totalMarked = closedAttendances.reduce(
       (acc, a) =>
-        acc + a.studentRecords.filter((s) => s.status !== 'absent').length,
+        acc + a.studentRecords.filter((s) => s.finalStatus !== 'absent').length,
       0
     );
     const totalStudents = closedAttendances.reduce(
@@ -364,7 +364,7 @@ export const getGroupAttendanceTab = async (req, res) => {
       date: a.classDate,
       topic: a.courseTitle || 'Untitled',
       lecturer: a.lecturer?.name || 'N/A',
-      marked: a.studentRecords.filter((s) => s.status !== 'absent').length,
+      marked: a.studentRecords.filter((s) => s.finalStatus !== 'absent').length,
       late: isClosed(a) ? a.summaryStats?.late || 0 : 0,
       absent: isClosed(a) ? a.summaryStats?.absent || 0 : 0,
       status: a.status,
@@ -384,9 +384,9 @@ export const getGroupAttendanceTab = async (req, res) => {
             attendanceCount: 0,
           };
         }
-        if (s.status === 'absent') studentStats[id].absences += 1;
-        if (s.status === 'late') studentStats[id].lateMarks += 1;
-        if (s.status !== 'absent') studentStats[id].presentCount += 1;
+        if (s.finalStatus === 'absent') studentStats[id].absences += 1;
+        if (s.finalStatus === 'late') studentStats[id].lateMarks += 1;
+        if (s.finalStatus !== 'absent') studentStats[id].presentCount += 1;
         studentStats[id].attendanceCount += 1;
       });
     });
@@ -445,7 +445,7 @@ export const getGroupAttendanceTab = async (req, res) => {
                 startTime: activeSession.classTime?.start,
                 endTime: activeSession.classTime?.end,
                 studentsMarked: activeSession.studentRecords.filter(
-                  (s) => s.status !== 'absent'
+                  (s) => s.finalStatus !== 'absent'
                 ).length,
                 studentsAllowed: activeSession.studentRecords.length,
               }
@@ -477,12 +477,12 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const userId = req.user._id;
     const {
       method = 'geo',
-      time = new Date(),
+      time = new Date().getTime(),
       location = {},
       mode = 'checkIn',
     } = req.body;
     const io = req.io;
-
+    console.log(time);
     const attendance = await Attendance.findById(attendanceId);
     if (!attendance)
       throw createHttpError(404, 'Attendance session not found.', {
@@ -504,7 +504,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         { code: 'NOT_ALLOWED_TO_MARK' }
       );
 
-    const markTime = new Date().toISOString();
+    const markTime = new Date(time);
     const { classStart, classEnd, entryStart, entryEnd } =
       getMarkingWindows(attendance);
 
@@ -523,7 +523,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
 
       if (!alreadyCheckedIn) {
         studentRecord.checkIn = {
-          time: markTime,
+          time: markTime.getTime(),
           method,
           location,
           distanceFromClassMeters,
@@ -536,7 +536,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
           description: 'Session reopened. Skipped check-out.',
           data: {
             sessionStatus: 'on_time',
-            markTime,
+            markTime: markTime.getTime(),
           },
           createdBy: 'system',
           createdAt: new Date(),
@@ -547,20 +547,20 @@ export const markGeoAttendanceEntry = async (req, res) => {
         attendance.summaryStats.onTime += 1;
       } else if (!alreadyCheckedOut) {
         studentRecord.checkOut = {
-          time: markTime,
+          time: markTime.getTime(),
           method,
           location,
           distanceFromClassMeters,
         };
         studentRecord.checkOutVerified = true;
-        studentRecord.checkInStatus = 'late1';
+        studentRecord.checkInStatus = 'late';
 
         metaLog.push({
           type: 'status_changed',
           description: 'Reopened session. Late check-out recorded.',
           data: {
             sessionStatus: 'checked_out_late',
-            markTime,
+            markTime: markTime.getTime(),
           },
           createdBy: 'system',
           createdAt: new Date(),
@@ -612,7 +612,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       });
 
       studentRecord.checkIn = {
-        time: markTime,
+        time: markTime.getTime(),
         method,
         location,
         distanceFromClassMeters,
@@ -626,7 +626,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         arrivalDeltaMinutes <= 0 ? 'on_time' : 'late';
 
       const flagReasons = buildFlagReasons({
-        markTime,
+        markTime: markTime.getTime(),
         entryStart,
         entryEnd,
         method,
@@ -676,7 +676,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: 'Check-in successful.',
-        checkInTime: markTime,
+        checkInTime: markTime.getTime(),
         arrivalDeltaMinutes,
         distanceFromClassMeters,
         wasWithinRange,
@@ -711,7 +711,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       });
 
       studentRecord.checkOut = {
-        time: markTime,
+        time: markTime.getTime(),
         method,
         location,
         distanceFromClassMeters,
@@ -742,7 +742,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: 'Check-out successful.',
-        checkOutTime: markTime,
+        checkOutTime: markTime.getTime(),
         durationMinutes,
         departureDeltaMinutes,
         distanceFromClassMeters,
@@ -815,16 +815,16 @@ export const finalizeSingleAttendance = async (req, res) => {
     let totalPresent = 0;
 
     for (const record of session.studentRecords) {
-      if (!record.status || record.status === 'absent') {
+      if (!record.finalStatus || record.finalStatus === 'absent') {
         absents++;
         await StudentAttendance.findByIdAndUpdate(record._id, {
           status: 'absent',
         });
       } else {
         totalPresent++;
-        if (record.status === 'on_time') onTime++;
-        else if (record.status === 'late') late++;
-        else if (record.status === 'left_early') leftEarly++;
+        if (record.finalStatus === 'on_time') onTime++;
+        else if (record.finalStatus === 'late') late++;
+        else if (record.finalStatus === 'left_early') leftEarly++;
       }
 
       if (
@@ -1002,7 +1002,7 @@ export const reopenAttendanceSession = async (req, res) => {
     };
     if (allOptionSelected) {
       allowedStudentIds = allStudentRecords.map((record) =>
-        record.student.toString()
+        record.studentId.toString()
       );
     } else {
       //  if (allowedOptions.includes('approved_pleas')) {
