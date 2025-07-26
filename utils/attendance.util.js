@@ -97,15 +97,18 @@ export const enforceAttendanceSettings = (
       minute: '2-digit',
       timeZone: 'UTC',
     });
-const formatDualTime = (date) => {
+
+  const formatDualTime = (date) => {
   const d = new Date(date);
   const local = d.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Africa/Lagos', // 💥 KEY PART
   });
   const utc = d.toISOString().split('T')[1].slice(0, 5);
   return `${local} (Your Time) / ${utc} UTC`;
 };
+
 const diffMinutes = (a, b) => Math.round((a - b) / 60000);
   
   // ──────────────── GENERAL RULES ────────────────
@@ -125,7 +128,16 @@ const diffMinutes = (a, b) => Math.round((a - b) / 60000);
     errors.push({
       code: 'LATE_JOIN_BLOCKED',
       message:
-        'You joined this group after the attendance session started and are not allowed to mark attendance for it.',
+        'You joined this group after the attendance session stconst formatDualTime = (date) => {
+  const d = new Date(date);
+  const local = d.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Africa/Lagos', // 💥 KEY PART
+  });
+  const utc = d.toISOString().split('T')[1].slice(0, 5);
+  return `${local} (Your Time) / ${utc} UTC`;
+};arted and are not allowed to mark attendance for it.',
     });
   }
 
