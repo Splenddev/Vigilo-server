@@ -478,11 +478,12 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const userId = req.user._id;
     const {
       method = 'geo',
-      time = new Date().toISOString(),
+      //time = new Date().toISOString(),
       location = {},
       mode = 'checkIn',
     } = req.body;
     const io = req.io;
+    const time = new Date().toISOString(),
     console.log(time);
     const attendance = await Attendance.findById(attendanceId);
     if (!attendance)
