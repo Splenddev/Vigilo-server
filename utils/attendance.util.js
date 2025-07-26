@@ -69,8 +69,15 @@ export const enforceAttendanceSettings = (
       minute: '2-digit',
       timeZone: 'UTC',
     });
-
-  const diffMinutes = (a, b) => Math.round((a - b) / 60000);
+const formatDualTime = (date) => {
+  const d = new Date(date);
+  const local = d.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const utc = d.toISOString().split('T')[1].slice(0, 5);
+  return `${local} (Your Time) / ${utc} UTC`;
+};
 
   // ──────────────── GENERAL RULES ────────────────
 
@@ -101,9 +108,9 @@ export const enforceAttendanceSettings = (
       errors.push({
         code: 'TOO_EARLY_CHECKIN',
         message:
-          `Check-in attempted ${delta} minutes earlier than allowed. Early check-in is not permitted.\n` +
-          `➡️ Your check-in time: ${formatTime(markTime)} UTC\n` +
-          `🕒 Allowed window: ${formatTime(entryStart)} - ${formatTime(entryEnd)} UTC`,
+  `Check-in attempted ${delta} minutes earlier than allowed. Early check-in is not permitted.\n` +
+  `➡️ Your check-in time: ${formatDualTime(markTime)}\n` +
+  `🕒 Allowed window: ${formatDualTime(entryStart)} - ${formatDualTime(entryEnd)}`,
       });
     }
 
