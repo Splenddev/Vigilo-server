@@ -483,7 +483,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
       mode = 'checkIn',
     } = req.body;
     const io = req.io;
-    const time = new Date().toISOString(),
+    const time = new Date().toISOString();
     console.log(time);
     const attendance = await Attendance.findById(attendanceId);
     if (!attendance)
