@@ -4,22 +4,26 @@ import Group from '../models/group.js';
 import { sendNotification } from './sendNotification.js';
 import { applyTimeOffset } from './helpers.js';
 
-
 export const getMarkingWindows = (attendance) => {
   const [year, month, day] = attendance.classDate.split('-').map(Number);
   const [startHour, startMinute] = attendance.classTime.start
     .split(':')
     .map(Number);
-  const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
+  const [endHour, endMinute] = attendance.classTime.end
+    .split(':')
+    .map(Number);
 
-  const classStart = new Date(
-    Date.UTC(year, month - 1, day, startHour, startMinute)
-  );
-  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
-  const entryStart = applyTimeOffset(
-    classStart,
-    attendance.entry?.start || '0H0M'
-  );
+  // Convert Africa/Lagos time to UTC manually by assuming it's always UTC+1 or +1/+0
+  const lagosOffsetMinutes = new Date().getTimezoneOffset() === -60 ? -60 : -60;
+  const offsetMs = lagosOffsetMinutes * 60 * 1000;
+
+  const lagosStart = new Date(year, month - 1, day, startHour, startMinute);
+  const lagosEnd = new Date(year, month - 1, day, endHour, endMinute);
+
+  const classStart = new Date(lagosStart.getTime() - offsetMs); // convert to UTC
+  const classEnd = new Date(lagosEnd.getTime() - offsetMs);     // convert to UTC
+
+  const entryStart = applyTimeOffset(classStart, attendance.entry?.start || '0H0M');
   let entryEnd = applyTimeOffset(classStart, attendance.entry?.end || '1H30M');
 
   if (
