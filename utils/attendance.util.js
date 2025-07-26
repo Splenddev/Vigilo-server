@@ -78,7 +78,8 @@ const formatDualTime = (date) => {
   const utc = d.toISOString().split('T')[1].slice(0, 5);
   return `${local} (Your Time) / ${utc} UTC`;
 };
-
+const diffMinutes = (a, b) => Math.round((a - b) / 60000);
+  
   // ──────────────── GENERAL RULES ────────────────
 
   if (
