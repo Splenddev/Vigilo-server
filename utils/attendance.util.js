@@ -4,6 +4,34 @@ import Group from '../models/group.js';
 import { sendNotification } from './sendNotification.js';
 import { applyTimeOffset } from './helpers.js';
 
+
+export const getMarkingWindows = (attendance) => {
+  const [year, month, day] = attendance.classDate.split('-').map(Number);
+  const [startHour, startMinute] = attendance.classTime.start
+    .split(':')
+    .map(Number);
+  const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
+
+  const classStart = new Date(
+    Date.UTC(year, month - 1, day, startHour, startMinute)
+  );
+  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
+  const entryStart = applyTimeOffset(
+    classStart,
+    attendance.entry?.start || '0H0M'
+  );
+  let entryEnd = applyTimeOffset(classStart, attendance.entry?.end || '1H30M');
+
+  if (
+    attendance.reopenedUntil &&
+    new Date(attendance.reopenedUntil) > entryEnd
+  ) {
+    entryEnd = new Date(attendance.reopenedUntil);
+  }
+
+  return { classStart, classEnd, entryStart, entryEnd };
+};
+
 export const getFinalStatus = ({
   checkInStatus,
   checkOutStatus,
@@ -181,32 +209,6 @@ const diffMinutes = (a, b) => Math.round((a - b) / 60000);
   }
 };
 
-export const getMarkingWindows = (attendance) => {
-  const [year, month, day] = attendance.classDate.split('-').map(Number);
-  const [startHour, startMinute] = attendance.classTime.start
-    .split(':')
-    .map(Number);
-  const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
-
-  const classStart = new Date(
-    Date.UTC(year, month - 1, day, startHour, startMinute)
-  );
-  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
-  const entryStart = applyTimeOffset(
-    classStart,
-    attendance.entry?.start || '0H0M'
-  );
-  let entryEnd = applyTimeOffset(classStart, attendance.entry?.end || '1H30M');
-
-  if (
-    attendance.reopenedUntil &&
-    new Date(attendance.reopenedUntil) > entryEnd
-  ) {
-    entryEnd = new Date(attendance.reopenedUntil);
-  }
-
-  return { classStart, classEnd, entryStart, entryEnd };
-};
 
 export const getDeviceInfo = (req) => ({
   ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
