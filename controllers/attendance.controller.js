@@ -478,7 +478,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const userId = req.user._id;
     const {
       method = 'geo',
-      time = new Date().getTime(),
+      time = new Date().toISOString(),
       location = {},
       mode = 'checkIn',
     } = req.body;
