@@ -40,6 +40,7 @@ import {
 } from 'date-fns';
 import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntryhandlers/emitAttendanceProgress.js';
 import { applyTimeOffset } from '../utils/helpers.js';
+import { handleReopenLogic } from '../handlers/attendance.handlers/reopenHandlers/handleReopenLogic.js';
 
 export const createAttendance = async (req, res) => {
   try {
@@ -516,79 +517,19 @@ export const markGeoAttendanceEntry = async (req, res) => {
     const deviceInfo = getDeviceInfo(req);
 
     if (attendance.reopened) {
-      const alreadyCheckedIn = !!studentRecord.checkIn?.time;
-      const alreadyCheckedOut = !!studentRecord.checkOut?.time;
-
-      const metaLog = [];
-
-      if (!alreadyCheckedIn) {
-        studentRecord.checkIn = {
-          time: markTime.getTime(),
-          method,
-          location,
-          distanceFromClassMeters,
-        };
-        studentRecord.checkInStatus = 'on_time';
-        studentRecord.checkInVerified = true;
-
-        metaLog.push({
-          type: 'status_changed',
-          description: 'Session reopened. Skipped check-out.',
-          data: {
-            sessionStatus: 'on_time',
-            markTime: markTime.getTime(),
-          },
-          createdBy: 'system',
-          createdAt: new Date(),
-        });
-
-        studentRecord.finalStatus = 'present';
-        attendance.summaryStats.totalPresent += 1;
-        attendance.summaryStats.onTime += 1;
-      } else if (!alreadyCheckedOut) {
-        studentRecord.checkOut = {
-          time: markTime.getTime(),
-          method,
-          location,
-          distanceFromClassMeters,
-        };
-        studentRecord.checkOutVerified = true;
-        studentRecord.checkInStatus = 'late';
-
-        metaLog.push({
-          type: 'status_changed',
-          description: 'Reopened session. Late check-out recorded.',
-          data: {
-            sessionStatus: 'checked_out_late',
-            markTime: markTime.getTime(),
-          },
-          createdBy: 'system',
-          createdAt: new Date(),
-        });
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'You have already checked in and checked out.',
-        });
-      }
-
-      // Merge with existing meta if needed
-      studentRecord.meta = [...(studentRecord.meta || []), ...metaLog];
-
-      await studentRecord.save();
-      await attendance.save();
-
-      emitAttendanceProgress(io, attendance, studentRecord);
-
-      return res.status(200).json({
-        success: true,
-        message: alreadyCheckedIn
-          ? 'Late check-out recorded due to session being reopened.'
-          : 'Check-in and check-out skipped due to session being reopened.',
-        checkInTime: studentRecord.checkIn?.time,
-        checkOutTime: studentRecord.checkOut?.time,
-        status: studentRecord.finalStatus,
-        meta: studentRecord.meta,
+      return handleReopenLogic({
+        reqUserId: userId,
+        attendance,
+        studentRecord,
+        markTime,
+        method,
+        location,
+        distanceFromClassMeters,
+        classStart,
+        classEnd,
+        io,
+        res,
+        wasWithinRange,
       });
     }
 
@@ -793,15 +734,18 @@ export const finalizeSingleAttendance = async (req, res) => {
         message: 'This session has already been finalized.',
       });
     }
+    const startTime = new Date(session.classTime?.start);
+    const entryStart = applyTimeOffset(startTime, session.entry?.start);
 
-    const classEnd = new Date(`${session.classDate}T${session.classTime.end}`);
+    const entryEnd = applyTimeOffset(entryStart, session.entry?.end);
+
     const now = new Date();
-    if (classEnd > now) {
+    if (entryEnd > now) {
       return res.status(400).json({
         success: false,
-        code: 'CLASS_NOT_ENDED',
-        message: 'You cannot finalize attendance before class ends.',
-        classEnd,
+        code: 'ENTRY_NOT_ENDED',
+        message: 'You cannot finalize attendance before entry ends.',
+        entryEnd,
         currentTime: now,
       });
     }
@@ -943,6 +887,7 @@ export const reopenAttendanceSession = async (req, res) => {
       durationMinutes = '0H15M',
       allowedOptions = [],
       customMatricNumbers = [],
+      reopenFeatures = {},
     } = req.body;
     const { io } = req;
 
@@ -951,6 +896,23 @@ export const reopenAttendanceSession = async (req, res) => {
         success: false,
         code: 'INVALID_ATTENDANCE_ID',
         message: 'Invalid attendance ID provided.',
+      });
+    }
+
+    if (!durationMinutes || typeof durationMinutes !== 'string') {
+      return res.status(400).json({
+        success: false,
+        code: 'MISSING_DURATION',
+        message: 'durationMinutes is required in the request.',
+      });
+    }
+
+    if (!Array.isArray(allowedOptions)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_ALLOWED_OPTIONS',
+        message:
+          'allowedOptions must be an array of allowed student filter options.',
       });
     }
 
@@ -985,7 +947,7 @@ export const reopenAttendanceSession = async (req, res) => {
 
     const groupId = session.groupId.toString();
     const allStudentRecords = await StudentAttendance.find({
-      attendanceId: session._id,
+      attendanceId: session._id.toString(),
     });
 
     let allowedStudentIds = [];
@@ -1014,26 +976,20 @@ export const reopenAttendanceSession = async (req, res) => {
       //    filters.approvedPleas = pleas.map((plea) => plea.student.toString());
       //  }
 
-      if (allowedOptions.includes('forgot_checkout')) {
-        filters.missedCheckouts = allStudentRecords
-          .filter((r) => r.checkIn.time && r.checkOutStatus === 'missed')
-          .map((r) => r.studentId.toString());
-      }
-
-      if (allowedOptions.includes('late_checkin')) {
-        filters.lateCheckIns = allStudentRecords
-          .filter((r) => r.checkInStatus === 'late')
-          .map((r) => r.studentId.toString());
+      if (allowedOptions.includes('outside_range')) {
+        //suggest logic for me
       }
 
       if (
-        allowedOptions.includes('custom_matric') &&
+        allowedOptions.includes('custom') &&
         Array.isArray(customMatricNumbers)
       ) {
         const customStudents = allStudentRecords.filter((r) =>
           customMatricNumbers.includes(r.studentMatric)
         );
-        filters.customMatric = customStudents.map((r) => r.student.toString());
+        filters.customMatric = customStudents.map((r) =>
+          r.studentId.toString()
+        );
       }
 
       const merged = [
@@ -1047,6 +1003,10 @@ export const reopenAttendanceSession = async (req, res) => {
 
       allowedStudentIds = [...new Set(merged)];
     }
+    session.reopenAllowedStudents = allowedStudentIds;
+    console.log(allowedStudentIds);
+    console.log(reopenFeatures);
+    console.log(durationMinutes);
 
     // 🕐 Compute class start time
     const [startHour, startMin] = session.classTime.start
@@ -1089,6 +1049,7 @@ export const reopenAttendanceSession = async (req, res) => {
     session.reopenDuration = durationMinutes;
     session.status = 'active';
     session.reopened = true;
+    session.reopenFeatures = reopenFeatures;
     await session.save();
 
     // 📢 Notify class rep

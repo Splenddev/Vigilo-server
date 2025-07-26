@@ -4,18 +4,13 @@ const FinalStatusRulesSchema = new mongoose.Schema(
   {
     absentHandling: {
       type: String,
-      enum: ['allow_all', 'late_only', 'stay_absent'],
-      default: 'allow_all',
+      enum: ['auto', 'late', 'present', 'absent'],
+      default: 'auto',
     },
     partialHandling: {
       type: String,
-      enum: ['present', 'stay_partial', 'prompt_checkout'],
+      enum: ['present', 'partial', 'late'],
       default: 'present',
-    },
-    lateHandling: {
-      type: String,
-      enum: ['present_if_checkout', 'stay_late'],
-      default: 'stay_late',
     },
   },
   { _id: false }
@@ -23,36 +18,23 @@ const FinalStatusRulesSchema = new mongoose.Schema(
 
 const ReopenFeaturesSchema = new mongoose.Schema(
   {
+    requireGeo: { type: Boolean, default: true },
     allowFreshCheckIn: { type: Boolean, default: true },
-    allowOnlyCheckIn: { type: Boolean, default: false },
     allowCheckOutForCheckedIn: { type: Boolean, default: false },
-    allowReCheckIn: { type: Boolean, default: false },
     allowEditByRep: { type: Boolean, default: true },
-    autoMarkIncompleteAsAbsent: { type: Boolean, default: false },
-    requireReason: { type: Boolean, default: false },
-    notifyOnMark: { type: Boolean, default: true },
-
-    enableMaxReopenLimit: { type: Boolean, default: true },
-    maxReopenCount: {
-      type: Number,
-      default: 2,
-      min: [1, 'Minimum reopen count is 1'],
-      max: [10, 'Maximum reopen count is 10'],
-    },
 
     enableFinalStatusControl: { type: Boolean, default: true },
     notifyScope: {
       type: String,
-      enum: ['admins', 'rep_only', 'students', 'none'],
-      default: 'admins',
+      enum: ['affected_admin', 'rep_only', 'students', 'none', 'admin'],
+      default: 'affected_admin',
     },
 
     finalStatusRules: {
       type: FinalStatusRulesSchema,
       default: () => ({
-        absentHandling: 'allow_all',
+        absentHandling: 'late',
         partialHandling: 'present',
-        lateHandling: 'stay_late',
       }),
     },
   },
