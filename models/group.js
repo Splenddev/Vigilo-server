@@ -64,9 +64,21 @@ const memberSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    leftAt: {
+      type: Date,
+      default: null,
+    },
+    leftReason: {
+      type: String,
+      default: null,
+    },
+    lastSeen: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
-      enum: ['active', 'suspended'],
+      enum: ['active', 'suspended', 'left'],
       default: 'active',
     },
     suspension: {
