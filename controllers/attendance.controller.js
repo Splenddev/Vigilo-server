@@ -42,6 +42,10 @@ import { emitAttendanceProgress } from '../handlers/attendance.handlers/markEntr
 import { applyTimeOffset } from '../utils/helpers.js';
 import { handleReopenLogic } from '../handlers/attendance.handlers/reopenHandlers/handleReopenLogic.js';
 
+import { DateTime } from 'luxon';
+
+const localTimeZone = 'Africa/Lagos';
+
 export const createAttendance = async (req, res) => {
   try {
     const {
@@ -80,9 +84,29 @@ export const createAttendance = async (req, res) => {
       weekday: 'long',
     });
 
+    const [year, month, day] = classDate.split('-').map((n) => parseInt(n, 10));
+    const [startHour, startMinute] = classTime.start
+      .split(':')
+      .map((n) => parseInt(n, 10));
+    const [endHour, endMinute] = classTime.end
+      .split(':')
+      .map((n) => parseInt(n, 10));
+
+    const utcStart = DateTime.fromObject(
+      { year, month, day, hour: startHour, minute: startMinute },
+      { zone: localTimeZone }
+    ).toUTC();
+
+    const utcEnd = DateTime.fromObject(
+      { year, month, day, hour: endHour, minute: endMinute },
+      { zone: localTimeZone }
+    ).toUTC();
+
     const computedClassTime = {
       ...classTime,
       day: dayOfWeek,
+      utcStart: utcStart.toJSDate(),
+      utcEnd: utcEnd.toJSDate(),
     };
 
     const isToday = isSameDay(classDateObj, new Date());
@@ -536,9 +560,15 @@ export const markGeoAttendanceEntry = async (req, res) => {
         wasWithinRange,
       });
     }
-    console.log(markTime);
-    console.log(entryStart);
-    console.log(entryEnd);
+    console.log('🕒 Now (UTC):', new Date().toISOString());
+    console.log('🕒 entryStart (UTC):', entryStart.toISOString());
+    console.log('🕒 entryEnd (UTC):', entryEnd.toISOString());
+    console.log('🕒 Check-in Time:', markTime.toISOString());
+
+    console.log(
+      'Backend Timezone Offset (minutes):',
+      new Date().getTimezoneOffset()
+    );
 
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time)

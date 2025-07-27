@@ -111,6 +111,8 @@ const attendanceSchema = new mongoose.Schema({
         message: 'Class duration must be at least 30 minutes.',
       },
     },
+    utcStart: { type: Date },
+    utcEnd: { type: Date },
   },
 
   entry: {

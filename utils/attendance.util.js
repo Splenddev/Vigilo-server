@@ -174,23 +174,14 @@ export const enforceAttendanceSettings = (
 };
 
 export const getMarkingWindows = (attendance) => {
-  const [year, month, day] = attendance.classDate.split('-').map(Number);
-  const [startHour, startMinute] = attendance.classTime.start
-    .split(':')
-    .map(Number);
-  const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
+  const classStart = new Date(attendance.classTime.utcStart); // ✅ Already UTC
+  const classEnd = new Date(attendance.classTime.utcEnd); // ✅ Already UTC
 
-  // ✅ Use UTC-based date construction
-  const classStart = new Date(
-    Date.UTC(year, month - 1, day, startHour, startMinute)
-  );
-  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
-
-  // Assuming applyTimeOffset returns a Date (also in UTC)
   const entryStart = applyTimeOffset(
     classStart,
     attendance.entry?.start || '0H0M'
   );
+
   let entryEnd = applyTimeOffset(classStart, attendance.entry?.end || '1H30M');
 
   if (
