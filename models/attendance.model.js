@@ -140,6 +140,15 @@ const attendanceSchema = new mongoose.Schema({
     },
   ],
 
+  reopenedAt: {
+    type: Date,
+  },
+
+  reopenedBy: {
+    type: mongoose.Types.ObjectId,
+    ref: 'User',
+  },
+
   reopenFeatures: {
     type: ReopenFeaturesSchema,
     default: () => ({}),

@@ -180,10 +180,8 @@ export const getMarkingWindows = (attendance) => {
     .map(Number);
   const [endHour, endMinute] = attendance.classTime.end.split(':').map(Number);
 
-  const classStart = new Date(
-    Date.UTC(year, month - 1, day, startHour, startMinute)
-  );
-  const classEnd = new Date(Date.UTC(year, month - 1, day, endHour, endMinute));
+  const classStart = new Date(year, month - 1, day, startHour, startMinute);
+  const classEnd = new Date(year, month - 1, day, endHour, endMinute);
   const entryStart = applyTimeOffset(
     classStart,
     attendance.entry?.start || '0H0M'

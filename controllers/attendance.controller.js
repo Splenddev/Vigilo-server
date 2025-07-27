@@ -506,6 +506,10 @@ export const markGeoAttendanceEntry = async (req, res) => {
       );
 
     const markTime = new Date(time);
+    if (isNaN(markTime)) {
+      throw new Error('Invalid mark time format');
+    }
+
     const { classStart, classEnd, entryStart, entryEnd } =
       getMarkingWindows(attendance);
 
@@ -891,6 +895,7 @@ export const reopenAttendanceSession = async (req, res) => {
     } = req.body;
     const { io } = req;
 
+    // 🔍 Validate attendanceId
     if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
       return res.status(400).json({
         success: false,
@@ -899,11 +904,12 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
+    // 🧪 Validate inputs
     if (!durationMinutes || typeof durationMinutes !== 'string') {
       return res.status(400).json({
         success: false,
         code: 'MISSING_DURATION',
-        message: 'durationMinutes is required in the request.',
+        message: 'durationMinutes must be a valid string.',
       });
     }
 
@@ -911,11 +917,11 @@ export const reopenAttendanceSession = async (req, res) => {
       return res.status(400).json({
         success: false,
         code: 'INVALID_ALLOWED_OPTIONS',
-        message:
-          'allowedOptions must be an array of allowed student filter options.',
+        message: 'allowedOptions must be an array.',
       });
     }
 
+    // 🔄 Load session
     const session = await Attendance.findById(attendanceId);
     if (!session) {
       return res.status(404).json({
@@ -933,19 +939,50 @@ export const reopenAttendanceSession = async (req, res) => {
       });
     }
 
+    const now = Date.now();
+    const maxReopenAfterEndMs = 2 * 60 * 60 * 1000; // 2 hours
     const classDateObj = parseISO(session.classDate);
-    const now = new Date();
-    const daysSince = differenceInDays(now, classDateObj);
 
-    if (daysSince > 5) {
+    const classEnd = new Date(session.classTime.end).getTime();
+
+    if (now > classEnd + maxReopenAfterEndMs) {
       return res.status(403).json({
         success: false,
-        code: 'OLD_SESSION',
-        message: `Cannot reopen sessions older than ${daysSince}.`,
+        code: 'REOPEN_EXPIRED',
+        message: 'You can no longer reopen this attendance session.',
       });
     }
+    // 🕐 Compute class start and end times
+    const [startHour, startMin] = session.classTime.start
+      .split(':')
+      .map(Number);
+    const [endHour, endMin] = session.classTime.end.split(':').map(Number);
 
-    const groupId = session.groupId.toString();
+    const classStartTime = setHours(
+      setMinutes(classDateObj, startMin),
+      startHour
+    );
+    const classEndTime = setHours(setMinutes(classDateObj, endMin), endHour);
+
+    // 🕒 Original entry timing
+    const originalEntryStart = applyTimeOffset(
+      classStartTime,
+      session.entry.start
+    );
+    const originalEntryEnd = applyTimeOffset(
+      originalEntryStart,
+      session.entry.end
+    );
+
+    // ⏱️ Parse duration string like '0H15M'
+    const match = durationMinutes.match(/(?:(\d+)H)?(?:(\d+)M)?/i);
+    const reopenH = parseInt(match?.[1] || '0', 10);
+    const reopenM = parseInt(match?.[2] || '0', 10);
+
+    const rawReopenEnd = addMinutes(addHours(now, reopenH), reopenM);
+    const reopenEnd = min([rawReopenEnd, classEndTime]); // ✋ cap at class end
+
+    // 🎓 Get eligible students
     const allStudentRecords = await StudentAttendance.find({
       attendanceId: session._id.toString(),
     });
@@ -953,33 +990,17 @@ export const reopenAttendanceSession = async (req, res) => {
     let allowedStudentIds = [];
 
     const allOptionSelected = allowedOptions.includes('all');
-
     const filters = {
       approvedPleas: [],
       missedCheckouts: [],
-      noCheckInOrOut: [],
-      lateCheckIns: [],
-      geoFailed: [],
       customMatric: [],
     };
+
     if (allOptionSelected) {
-      allowedStudentIds = allStudentRecords.map((record) =>
-        record.studentId.toString()
-      );
+      allowedStudentIds = allStudentRecords
+        .filter((r) => !!r.checkIn.time && !!r.checkOut.time)
+        .map((r) => r.studentId.toString());
     } else {
-      //  if (allowedOptions.includes('approved_pleas')) {
-      //    const pleas = await Plea.find({
-      //      attendance: attendanceId,
-      //      status: 'approved',
-      //    }).lean();
-
-      //    filters.approvedPleas = pleas.map((plea) => plea.student.toString());
-      //  }
-
-      if (allowedOptions.includes('outside_range')) {
-        //suggest logic for me
-      }
-
       if (
         allowedOptions.includes('custom') &&
         Array.isArray(customMatricNumbers)
@@ -995,49 +1016,21 @@ export const reopenAttendanceSession = async (req, res) => {
       const merged = [
         ...filters.approvedPleas,
         ...filters.missedCheckouts,
-        ...filters.noCheckInOrOut,
-        ...filters.lateCheckIns,
-        ...filters.geoFailed,
         ...filters.customMatric,
       ];
 
       allowedStudentIds = [...new Set(merged)];
     }
-    session.reopenAllowedStudents = allowedStudentIds;
-    console.log(allowedStudentIds);
-    console.log(reopenFeatures);
-    console.log(durationMinutes);
 
-    // 🕐 Compute class start time
-    const [startHour, startMin] = session.classTime.start
-      .split(':')
-      .map(Number);
-    const classStartTime = setHours(
-      setMinutes(classDateObj, startMin),
-      startHour
-    );
+    if (allowedStudentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'NO_ELIGIBLE_STUDENTS',
+        message: 'No eligible students to reopen attendance for.',
+      });
+    }
 
-    // 🕒 Original entry timing
-    const originalEntryStart = applyTimeOffset(
-      classStartTime,
-      session.entry.start
-    );
-    const originalEntryEnd = applyTimeOffset(
-      originalEntryStart,
-      session.entry.end
-    );
-
-    // ⏱️ Parse reopen duration
-    const match = durationMinutes.match(/(?:(\d+)H)?(?:(\d+)M)?/i);
-    const reopenH = parseInt(match?.[1] || '0', 10);
-    const reopenM = parseInt(match?.[2] || '0', 10);
-
-    // 🕔 Compute capped reopen end time
-    const rawReopenEnd = addMinutes(addHours(now, reopenH), reopenM);
-    const dayEnd = endOfDay(classDateObj);
-    const reopenEnd = min([rawReopenEnd, dayEnd]);
-
-    // Only update entry.end if now > original entryEnd
+    // ⏳ Update entry.end if current time has passed it
     if (isAfter(now, originalEntryEnd)) {
       const diffMins = differenceInMinutes(reopenEnd, classStartTime);
       const newH = Math.floor(diffMins / 60);
@@ -1045,15 +1038,18 @@ export const reopenAttendanceSession = async (req, res) => {
       session.entry.end = `${newH}H${newM}M`;
     }
 
-    session.reopenedUntil = reopenEnd;
-    session.reopenDuration = durationMinutes;
+    // ✅ Update session
     session.status = 'active';
     session.reopened = true;
+    session.reopenAllowedStudents = allowedStudentIds;
+    session.reopenDuration = durationMinutes;
+    session.reopenedUntil = reopenEnd;
     session.reopenFeatures = reopenFeatures;
+
     await session.save();
 
     // 📢 Notify class rep
-    const group = await Group.findById(groupId);
+    const group = await Group.findById(session.groupId);
     const classRepId = group?.createdBy || group?.classRep;
 
     if (classRepId) {
@@ -1080,6 +1076,7 @@ export const reopenAttendanceSession = async (req, res) => {
       success: true,
       message: `Attendance session ${session.attendanceId} has been reopened.`,
       attendanceId: session.attendanceId,
+      reopenUntil: reopenEnd,
     });
   } catch (err) {
     console.error('❌ Reopen attendance error:', err);

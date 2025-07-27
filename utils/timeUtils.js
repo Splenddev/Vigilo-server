@@ -11,3 +11,9 @@ export const toMinutes = (str, classTime) => {
   if (!match) return null;
   return parseInt(match[1]) * 60 + parseInt(match[2]);
 };
+
+export function parseDurationString(str = '0H15M') {
+  const hours = parseInt(str.match(/(\d+)H/)?.[1] || '0', 10);
+  const minutes = parseInt(str.match(/(\d+)M/)?.[1] || '0', 10);
+  return (hours * 60 + minutes) * 60 * 1000;
+}

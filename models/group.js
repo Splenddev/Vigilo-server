@@ -64,6 +64,20 @@ const memberSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    status: {
+      type: String,
+      enum: ['active', 'suspended'],
+      default: 'active',
+    },
+    suspension: {
+      reason: String,
+      start: Date,
+      end: Date,
+    },
+    warningCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { _id: false }
 );
@@ -172,6 +186,39 @@ const groupSchema = new mongoose.Schema(
         message: 'Duplicate member IDs are not allowed.',
       },
     },
+    expelledMembers: {
+      type: [
+        {
+          user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true,
+          },
+          reason: String,
+          expelledAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+      default: [],
+    },
+    reports: {
+      type: [
+        {
+          reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+          target: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+          reason: String,
+          createdAt: { type: Date, default: Date.now },
+          status: {
+            type: String,
+            enum: ['pending', 'reviewed', 'dismissed'],
+            default: 'pending',
+          },
+        },
+      ],
+      default: [],
+    },
     mediaUploads: [
       {
         _id: false,
@@ -224,6 +271,7 @@ const groupSchema = new mongoose.Schema(
       },
     ],
   },
+
   {
     timestamps: true,
     toJSON: { virtuals: true },
