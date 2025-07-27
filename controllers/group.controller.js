@@ -453,7 +453,6 @@ export const approveJoinRequest = async (req, res) => {
       level: request.level,
       avatar: request.avatar,
       role: 'student',
-      joinedAt: new Date(),
       matricNumber: request.matricNumber,
     });
 
