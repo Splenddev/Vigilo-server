@@ -536,6 +536,9 @@ export const markGeoAttendanceEntry = async (req, res) => {
         wasWithinRange,
       });
     }
+    console.log(markTime);
+    console.log(entryStart);
+    console.log(entryEnd);
 
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time)
