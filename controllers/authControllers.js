@@ -6,6 +6,10 @@ import bcrypt from 'bcryptjs';
 import { generateOtp } from '../utils/generateOtp.js';
 import { sendOtpEmail } from '../utils/sendOtp.js';
 import { errorResponse } from '../utils/errorResponses.js';
+import createHttpError from 'http-errors';
+import mongoose from 'mongoose';
+import Attendance from '../models/attendance.model.js';
+import scheduleModel from '../models/schedule.model.js';
 
 export const register = async (req, res) => {
   const { role, courses, ...userData } = req.body;
@@ -237,5 +241,42 @@ export const getCurrentUser = async (req, res) => {
   } catch (error) {
     console.error('Error fetching user:', error.message);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const getUserInfo = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate ID format
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw createHttpError(400, 'Invalid user ID.');
+    }
+
+    // Query user by ID (excluding sensitive fields)
+    const user = await User.findById(userId).select(
+      '_id name avatar department level faculty role createdAt email group'
+    );
+
+    if (!user) {
+      throw createHttpError(404, 'User not found.');
+    }
+
+    // Count attendance and schedule records with the same groupId
+    const [attendanceCount, scheduleCount] = await Promise.all([
+      Attendance.countDocuments({ groupId: user.group }),
+      scheduleModel.countDocuments({ groupId: user.group }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      user,
+      stats: {
+        attendanceCount,
+        scheduleCount,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
 };

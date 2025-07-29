@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import Group from '../models/group.js';
 import User from '../models/userModel.js';
 import Attendance from '../models/attendance.model.js';
@@ -470,8 +471,8 @@ export const approveJoinRequest = async (req, res) => {
     student.group = groupId;
     await student.save();
 
-    // 7. Add StudentAttendance record if attendance is active
-    const today = new Date().toISOString().split('T')[0];
+    const today = DateTime.now().setZone('Africa/Lagos').toISODate();
+
     const activeAttendance = await Attendance.findOne({
       groupId,
       classDate: today,

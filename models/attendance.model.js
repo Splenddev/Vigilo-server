@@ -188,6 +188,16 @@ const attendanceSchema = new mongoose.Schema({
     repeatable: { type: Boolean, default: false },
     notifyOnStart: { type: Boolean, default: true },
 
+    checkInCloseTime: {
+      type: String,
+      default: '0H10M',
+    },
+
+    checkOutOpenTime: {
+      type: String,
+      default: '0H10M',
+    },
+
     markingConfig: {
       type: {
         type: String,

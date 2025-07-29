@@ -2,6 +2,7 @@
 import express from 'express';
 import {
   getCurrentUser,
+  getUserInfo,
   login,
   logoutUser,
   register,
@@ -19,5 +20,6 @@ authRouter.post('/logout', logoutUser);
 authRouter.post('/send-otp', sendOtp);
 authRouter.post('/verify-otp', verifyOtp);
 authRouter.get('/me', protect, getCurrentUser);
+authRouter.get('/:userId', protect, getUserInfo);
 
 export default authRouter;

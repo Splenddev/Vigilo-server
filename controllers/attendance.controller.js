@@ -16,7 +16,7 @@ import {
 } from '../utils/attendance.util.js';
 
 import { validateCreateAttendancePayload } from '../validators/attendance.validator.js';
-import { toMinutes } from '../utils/timeUtils.js';
+import { parseTimeOffset, toMinutes } from '../utils/timeUtils.js';
 import {
   checkDuplicateAttendance,
   getGroupAndSchedule,
@@ -129,6 +129,34 @@ export const createAttendance = async (req, res) => {
           message: 'Marking end must be after start, in valid H and M format.',
         });
       }
+
+      const entryWindowMins = entryEndMins - entryStartMins;
+      const offsetMins = parseTimeOffset(settings.checkInClose);
+      const entryStartISO = DateTime.fromJSDate(computedClassTime.utcStart)
+        .plus({ minutes: entryStartMins })
+        .toISO();
+
+      const checkInCloseISO = DateTime.fromJSDate(entryStartISO)
+        .plus({ minutes: offsetMins })
+        .toISO();
+
+      if (checkInCloseISO <= entryStartISO) {
+        throw createHttpError(
+          400,
+          'Check-in close must be at least 10 minutes after start.'
+        );
+      }
+
+      // ✅ Validate minimumPresenceDuration
+      const minDuration = settings?.minimumPresenceDuration ?? 45;
+
+      if (minDuration > entryWindowMins) {
+        return res.status(400).json({
+          success: false,
+          code: 'MIN_DURATION_TOO_LONG',
+          message: `Minimum presence duration (${minDuration} mins) exceeds the entry window (${entryWindowMins} mins).`,
+        });
+      }
     }
 
     const duplicate = await checkDuplicateAttendance({
@@ -208,6 +236,8 @@ export const createAttendance = async (req, res) => {
         allowEarlyCheckOut: settings?.allowEarlyCheckOut ?? true,
         autoCheckOut: settings?.autoCheckOut ?? true,
         minimumPresenceDuration: settings?.minimumPresenceDuration ?? 45,
+
+        checkInCloseTime: settings?.checkInClose ?? '0H10M',
 
         repeatable: settings?.repeatable ?? false,
         notifyOnStart: settings?.notifyOnStart ?? true,
@@ -341,7 +371,7 @@ export const getGroupAttendanceTab = async (req, res) => {
 
     const attendances = await Attendance.find({ groupId })
       .sort({ classDate: -1 })
-      .populate('studentRecords'); // important for externalized student records
+      .populate('studentRecords');
 
     if (!attendances.length) {
       return res.status(200).json({
@@ -369,12 +399,19 @@ export const getGroupAttendanceTab = async (req, res) => {
     const activeSession = attendances.find((a) => a.status === 'active');
     const closedAttendances = attendances.filter(isClosed);
 
+    // Utility: count students by finalStatus
+    const countByStatus = (attendances, status) =>
+      attendances.reduce(
+        (acc, a) =>
+          acc + a.studentRecords.filter((s) => s.finalStatus === status).length,
+        0
+      );
+
     const totalSessions = closedAttendances.length;
-    const totalMarked = closedAttendances.reduce(
-      (acc, a) =>
-        acc + a.studentRecords.filter((s) => s.finalStatus !== 'absent').length,
-      0
-    );
+    const totalPresent = countByStatus(closedAttendances, 'present');
+    const totalLate = countByStatus(closedAttendances, 'late');
+    const totalAbsent = countByStatus(closedAttendances, 'absent');
+    const totalMarked = totalPresent + totalLate;
     const totalStudents = closedAttendances.reduce(
       (acc, a) => acc + a.studentRecords.length,
       0
@@ -390,8 +427,15 @@ export const getGroupAttendanceTab = async (req, res) => {
       topic: a.courseTitle || 'Untitled',
       lecturer: a.lecturer?.name || 'N/A',
       marked: a.studentRecords.filter((s) => s.finalStatus !== 'absent').length,
-      late: isClosed(a) ? a.summaryStats?.late || 0 : 0,
-      absent: isClosed(a) ? a.summaryStats?.absent || 0 : 0,
+      present: isClosed(a)
+        ? a.studentRecords.filter((s) => s.finalStatus === 'present').length
+        : 0,
+      late: isClosed(a)
+        ? a.studentRecords.filter((s) => s.finalStatus === 'late').length
+        : 0,
+      absent: isClosed(a)
+        ? a.studentRecords.filter((s) => s.finalStatus === 'absent').length
+        : 0,
       status: a.status,
     }));
 
@@ -411,7 +455,7 @@ export const getGroupAttendanceTab = async (req, res) => {
         }
         if (s.finalStatus === 'absent') studentStats[id].absences += 1;
         if (s.finalStatus === 'late') studentStats[id].lateMarks += 1;
-        if (s.finalStatus !== 'absent') studentStats[id].presentCount += 1;
+        if (s.finalStatus === 'present') studentStats[id].presentCount += 1;
         studentStats[id].attendanceCount += 1;
       });
     });
@@ -459,7 +503,9 @@ export const getGroupAttendanceTab = async (req, res) => {
         summary: {
           totalSessions,
           totalMarked,
-          totalAbsent: totalStudents - totalMarked,
+          totalPresent,
+          totalLate,
+          totalAbsent,
           avgAttendanceRate: Number(avgAttendanceRate),
           activeSession: activeSession
             ? {
@@ -560,15 +606,6 @@ export const markGeoAttendanceEntry = async (req, res) => {
         wasWithinRange,
       });
     }
-    console.log('🕒 Now (UTC):', new Date().toISOString());
-    console.log('🕒 entryStart (UTC):', entryStart.toISOString());
-    console.log('🕒 entryEnd (UTC):', entryEnd.toISOString());
-    console.log('🕒 Check-in Time:', markTime.toISOString());
-
-    console.log(
-      'Backend Timezone Offset (minutes):',
-      new Date().getTimezoneOffset()
-    );
 
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time)
@@ -589,6 +626,29 @@ export const markGeoAttendanceEntry = async (req, res) => {
           studentRecord.joinedAfterAttendanceCreated, // optional
       });
 
+      // Convert settings-based thresholds to minutes
+      const lateThreshold = attendance.settings.lateThreshold ?? 10;
+      const checkInCloseOffsetMins = parseTimeOffset(
+        attendance.settings.checkInCloseTime
+      ); // '0H10M' → 10
+      const checkInCloseTime = new Date(
+        entryStart.getTime() + checkInCloseOffsetMins * 60000
+      );
+
+      // Validate check-in close time
+      if (markTime > checkInCloseTime) {
+        throw createHttpError(403, 'Check-in time has closed.', {
+          code: 'CHECK_IN_CLOSED',
+          allowedUntil: checkInCloseTime,
+        });
+      }
+
+      // Optionally distinguish between on_time and late
+      const checkInStatus =
+        arrivalDeltaMinutes <= lateThreshold ? 'on_time' : 'late';
+
+      studentRecord.checkInStatus = checkInStatus;
+
       studentRecord.checkIn = {
         time: markTime.getTime(),
         method,
@@ -600,8 +660,6 @@ export const markGeoAttendanceEntry = async (req, res) => {
       studentRecord.checkInVerified = method === 'geo' ? wasWithinRange : false;
       studentRecord.markedBy = 'student';
       studentRecord.deviceInfo = deviceInfo;
-      studentRecord.checkInStatus =
-        arrivalDeltaMinutes <= 0 ? 'on_time' : 'late';
 
       const flagReasons = buildFlagReasons({
         markTime: markTime.getTime(),
@@ -976,7 +1034,7 @@ export const reopenAttendanceSession = async (req, res) => {
     const maxReopenAfterEndMs = 2 * 60 * 60 * 1000; // 2 hours
     const classDateObj = parseISO(session.classDate);
 
-    const classEnd = new Date(session.classTime.end).getTime();
+    const classEnd = new Date(session.classTime.utcEnd).getTime();
 
     if (now > classEnd + maxReopenAfterEndMs) {
       return res.status(403).json({
@@ -1028,11 +1086,9 @@ export const reopenAttendanceSession = async (req, res) => {
       missedCheckouts: [],
       customMatric: [],
     };
-
+    console.log(allStudentRecords);
     if (allOptionSelected) {
-      allowedStudentIds = allStudentRecords
-        .filter((r) => !!r.checkIn.time && !!r.checkOut.time)
-        .map((r) => r.studentId.toString());
+      allowedStudentIds = allStudentRecords.map((r) => r.studentId.toString());
     } else {
       if (
         allowedOptions.includes('custom') &&
@@ -1045,6 +1101,8 @@ export const reopenAttendanceSession = async (req, res) => {
           r.studentId.toString()
         );
       }
+      console.log(customMatricNumbers);
+      console.log(customStudents);
 
       const merged = [
         ...filters.approvedPleas,

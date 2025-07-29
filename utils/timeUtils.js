@@ -17,3 +17,9 @@ export function parseDurationString(str = '0H15M') {
   const minutes = parseInt(str.match(/(\d+)M/)?.[1] || '0', 10);
   return (hours * 60 + minutes) * 60 * 1000;
 }
+
+export function parseTimeOffset(offset) {
+  const regex = /(?:(\d+)H)?(?:(\d+)M)?/i;
+  const [, h, m] = offset.match(regex) || [];
+  return parseInt(h || '0', 10) * 60 + parseInt(m || '0', 10);
+}
