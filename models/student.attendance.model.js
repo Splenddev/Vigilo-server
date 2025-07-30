@@ -66,10 +66,20 @@ const studentAttendanceSchema = new mongoose.Schema(
 
     finalStatus: {
       type: String,
-      enum: ['present', 'partial', 'absent', 'excused', 'late'],
+      enum: [
+        'excused',
+        'on_time',
+        'late',
+        'late_left_early',
+        'left_early',
+        'not_checkout',
+        'not_checkin',
+        'partial',
+        'absent',
+        'present',
+      ],
       default: 'absent',
     },
-
     checkIn: {
       time: Date,
       method: { type: String, enum: ['geo', 'manual'], default: 'geo' },

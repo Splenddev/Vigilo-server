@@ -8,28 +8,37 @@ export const getFinalStatus = ({
   checkInStatus,
   checkOutStatus,
   pleaStatus = null,
+  mode = 'strict',
 }) => {
-  // 1. Plea approved overrides all other logic
   if (pleaStatus === 'approved') {
     return 'excused';
   }
 
-  // 2. Missed both check-in and check-out
-  if (checkInStatus === 'absent' && checkOutStatus === 'missed') {
-    return 'absent';
+  const isAbsent = checkInStatus === 'absent' && checkOutStatus === 'missed';
+
+  if (mode === 'detailed') {
+    if (isAbsent) return 'absent';
+    if (checkInStatus === 'on_time' && checkOutStatus === 'on_time')
+      return 'on_time';
+    if (checkInStatus === 'late' && checkOutStatus === 'on_time') return 'late';
+    if (checkInStatus === 'late' && checkOutStatus === 'left_early')
+      return 'late_left_early';
+    if (checkInStatus === 'on_time' && checkOutStatus === 'left_early')
+      return 'left_early';
+    if (checkInStatus !== 'absent' && checkOutStatus === 'missed')
+      return 'not_checkout';
+    if (checkInStatus === 'absent' && checkOutStatus !== 'missed')
+      return 'not_checkin';
+    return 'partial';
   }
 
-  // 3. Fully present
-  if (checkInStatus === 'on_time' && checkOutStatus === 'on_time') {
+  // strict mode
+  if (isAbsent) return 'absent';
+  if (checkInStatus === 'on_time' && checkOutStatus === 'on_time')
     return 'present';
-  }
+  if (checkInStatus === 'late' && checkOutStatus === 'on_time')
+    return 'partial';
 
-  // 4. Late attendance
-  if (checkInStatus === 'late' && checkOutStatus === 'on_time') {
-    return 'late';
-  }
-
-  // 5. Partial attendance
   const partialConditions = [
     checkInStatus !== 'absent' && checkOutStatus === 'missed',
     checkInStatus === 'absent' && checkOutStatus !== 'missed',
@@ -41,7 +50,6 @@ export const getFinalStatus = ({
     return 'partial';
   }
 
-  // 6. Fallback
   return 'absent';
 };
 

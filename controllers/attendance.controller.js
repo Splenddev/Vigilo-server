@@ -688,6 +688,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         checkInStatus: studentRecord.checkInStatus,
         checkOutStatus: studentRecord.checkOutStatus,
         pleaStatus: studentRecord.plea?.status,
+        mode: attendance.settings.markingConfig.type,
       });
 
       if (studentRecord.finalStatus === 'present')
@@ -1100,9 +1101,9 @@ export const reopenAttendanceSession = async (req, res) => {
         filters.customMatric = customStudents.map((r) =>
           r.studentId.toString()
         );
+        console.log(customStudents);
       }
       console.log(customMatricNumbers);
-      console.log(customStudents);
 
       const merged = [
         ...filters.approvedPleas,

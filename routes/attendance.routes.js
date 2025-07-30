@@ -10,15 +10,14 @@ import {
   markGeoAttendanceEntry,
   reopenAttendanceSession,
 } from '../controllers/attendance.controller.js';
+import { getDetailedStudentAttendanceSummary } from '../controllers/students.controller.js';
 
 const attendanceRoutes = express.Router();
 
 attendanceRoutes.use(protect);
 
+//class reps
 attendanceRoutes.post('/create', allowClassRepsOnly, createAttendance);
-attendanceRoutes.get('/groups/:groupId/', getGroupAttendances);
-attendanceRoutes.get('/group-tab/:groupId/', getGroupAttendanceTab);
-attendanceRoutes.post('/mark-entry/:attendanceId', markGeoAttendanceEntry);
 attendanceRoutes.post(
   '/finalize/:attendanceId',
   allowClassRepsOnly,
@@ -30,5 +29,16 @@ attendanceRoutes.post(
   reopenAttendanceSession
 );
 attendanceRoutes.delete('/:attendanceId', allowClassRepsOnly, deleteAttendance);
+
+//general
+attendanceRoutes.get('/groups/:groupId/', getGroupAttendances);
+attendanceRoutes.get('/group-tab/:groupId/', getGroupAttendanceTab);
+attendanceRoutes.post('/mark-entry/:attendanceId', markGeoAttendanceEntry);
+
+//student
+attendanceRoutes.get(
+  '/students/:studentId/summary',
+  getDetailedStudentAttendanceSummary
+);
 
 export default attendanceRoutes;

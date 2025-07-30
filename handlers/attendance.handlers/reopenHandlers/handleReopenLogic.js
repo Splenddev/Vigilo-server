@@ -1,5 +1,6 @@
 import createHttpError from 'http-errors';
 import { emitAttendanceProgress } from '../markEntryhandlers/emitAttendanceProgress.js';
+import { getFinalStatus } from '../../../utils/attendance.util.js';
 
 export const handleReopenLogic = async ({
   reqUserId,
@@ -74,67 +75,24 @@ export const handleReopenLogic = async ({
 
   // CASE 1: Fresh check-in & check-out
   if (!alreadyCheckedIn && !alreadyCheckedOut) {
-    if (!allowFreshCheckInOut) {
-      return res.status(403).json({
-        code: 'REOPEN_FRESH_DENIED',
-        message: 'Fresh check-in and check-out not allowed during reopen.',
-      });
-    }
-    if (requireGeo && !wasWithinRange) {
-      throw createHttpError(
-        403,
-        'Geo-location required and user is out of range.',
-        {
-          code: 'REOPEN_GEO_REJECTED',
-          distance: distanceFromClassMeters,
-        }
-      );
-    }
-
-    studentRecord.checkIn = {
-      time: nowTime,
-      method,
-      location,
-      distanceFromClassMeters,
-    };
-    studentRecord.checkOut = {
-      time: nowTime,
-      method,
-      location,
-      distanceFromClassMeters,
-    };
-
-    studentRecord.arrivalDeltaMinutes = arrivalDelta;
-    studentRecord.departureDeltaMinutes = departureDelta;
-    studentRecord.durationMinutes = 0;
-    studentRecord.checkInStatus = 'late';
-    studentRecord.checkOutStatus = 'left_early';
-    studentRecord.checkInVerified = true;
-    studentRecord.checkOutVerified = true;
-
-    const finalStatus = enableFinalStatusControl ? absentHandling : 'late';
-    studentRecord.finalStatus = finalStatus;
-
-    summaryStats.totalPresent += 1;
-    if (finalStatus === 'present') summaryStats.onTime += 1;
-    if (finalStatus === 'partial') summaryStats.late += 1;
-
-    metaLog.push({
-      type: 'status_changed',
-      description: 'Fresh check-in and check-out during reopened session.',
-      data: {
-        arrivalDelta,
-        departureDelta,
-        finalStatus,
-        markTime: nowTime,
-      },
-      createdBy: 'system',
-      createdAt: new Date(),
+    return res.status(403).json({
+      code: 'REOPEN_FRESH_DENIED',
+      message: 'Fresh check-in and check-out not allowed during reopen.',
     });
   }
 
-  // CASE 2: Already checked in, but not checked out
-  else if (alreadyCheckedIn && !alreadyCheckedOut) {
+  if (requireGeo && !wasWithinRange) {
+    throw createHttpError(
+      403,
+      'Geo-location required and user is out of range.',
+      {
+        code: 'REOPEN_GEO_REJECTED',
+        distance: distanceFromClassMeters,
+      }
+    );
+  }
+
+  if (alreadyCheckedIn && !alreadyCheckedOut) {
     if (!allowCheckOutForCheckedIn) {
       return res.status(403).json({
         code: 'REOPEN_CHECKOUT_DENIED',
