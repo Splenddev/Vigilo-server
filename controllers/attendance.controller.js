@@ -609,10 +609,14 @@ export const markGeoAttendanceEntry = async (req, res) => {
 
     if (mode === 'checkIn') {
       if (studentRecord.checkIn?.time)
-        throw createHttpError(409, 'You have already marked check-in.', {
-          code: 'ALREADY_CHECKED_IN',
-          checkInTime: studentRecord.checkIn.time,
-        });
+        throw createHttpError(
+          409,
+          'You have already marked check-in. Please reload page if nothing changes.',
+          {
+            code: 'ALREADY_CHECKED_IN',
+            checkInTime: studentRecord.checkIn.time,
+          }
+        );
 
       const arrivalDeltaMinutes = Math.floor((markTime - classStart) / 60000);
 
@@ -636,7 +640,10 @@ export const markGeoAttendanceEntry = async (req, res) => {
       );
 
       // Validate check-in close time
-      if (markTime > checkInCloseTime) {
+      if (
+        !attendance.settings.allowLateCheckIn &&
+        markTime > checkInCloseTime
+      ) {
         throw createHttpError(403, 'Check-in time has closed.', {
           code: 'CHECK_IN_CLOSED',
           allowedUntil: checkInCloseTime,
@@ -729,10 +736,14 @@ export const markGeoAttendanceEntry = async (req, res) => {
           code: 'CHECK_IN_REQUIRED',
         });
       if (studentRecord.checkOut?.time)
-        throw createHttpError(409, 'You have already marked check-out.', {
-          code: 'ALREADY_CHECKED_OUT',
-          checkOutTime: studentRecord.checkOut.time,
-        });
+        throw createHttpError(
+          409,
+          'You have already marked check-out. If nothing changed, please reload page.',
+          {
+            code: 'ALREADY_CHECKED_OUT',
+            checkOutTime: studentRecord.checkOut.time,
+          }
+        );
 
       const departureDeltaMinutes = Math.floor((classEnd - markTime) / 60000);
       const durationMinutes = Math.floor(
@@ -763,6 +774,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         checkInStatus: studentRecord.checkInStatus,
         checkOutStatus: studentRecord.checkOutStatus,
         pleaStatus: studentRecord.plea?.status,
+        mode: attendance.settings.markingConfig.type,
       });
 
       if (prevFinal === 'present') attendance.summaryStats.onTime -= 1;
