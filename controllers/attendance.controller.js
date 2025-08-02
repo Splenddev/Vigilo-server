@@ -199,6 +199,36 @@ export const createAttendance = async (req, res) => {
       todaysCount + 1
     );
 
+    const {
+      markOnce = true,
+      allowLateJoiners = true,
+      lateThreshold = 10,
+      pleaWindowDays = 3,
+      proofRequirement = 'none',
+      enableCheckInOut = false,
+      repeatable = false,
+      notifyOnStart = true,
+      checkInClose = '0H10M',
+      markingConfig = {},
+    } = settings || {};
+
+    const { type: markingType = 'strict', mode: markingMode = 'no_code' } =
+      markingConfig || {};
+
+    // 👇 Default check-in/out features (all disabled if enableCheckInOut is false)
+    const allowEarlyCheckIn =
+      enableCheckInOut && (settings.allowEarlyCheckIn ?? false);
+    const allowLateCheckIn =
+      enableCheckInOut && (settings.allowLateCheckIn ?? false);
+    const allowEarlyCheckOut =
+      enableCheckInOut && (settings.allowEarlyCheckOut ?? false);
+    const allowLateCheckOut =
+      enableCheckInOut && (settings.allowLateCheckOut ?? false);
+    const autoCheckOut = enableCheckInOut && (settings.autoCheckOut ?? true);
+    const minimumPresenceDuration = enableCheckInOut
+      ? (settings.minimumPresenceDuration ?? 45)
+      : 0;
+
     const newAttendance = await Attendance.create({
       attendanceId,
       groupId,
@@ -221,31 +251,28 @@ export const createAttendance = async (req, res) => {
         email: schedule?.lecturer?.email || lecturer?.email || '',
       },
 
-      // ✅ Settings from schema
       settings: {
-        markOnce: settings?.markOnce ?? true,
-        allowLateJoiners: settings?.allowLateJoiners ?? true,
-        lateThreshold: settings?.lateThreshold ?? 10,
-        pleaWindowDays: settings?.pleaWindowDays ?? 3,
-        proofRequirement: settings?.proofRequirement ?? 'none',
+        markOnce,
+        allowLateJoiners,
+        lateThreshold,
+        pleaWindowDays,
+        proofRequirement,
 
-        enableCheckInOut: settings?.enableCheckInOut ?? false,
-        allowEarlyCheckIn: settings?.allowEarlyCheckIn ?? false,
-        allowLateCheckOut: settings?.allowLateCheckOut ?? true,
-        allowLateCheckIn: settings?.allowLateCheckIn ?? false,
-        allowEarlyCheckOut: settings?.allowEarlyCheckOut ?? true,
-        autoCheckOut: settings?.autoCheckOut ?? true,
-        minimumPresenceDuration: settings?.minimumPresenceDuration ?? 45,
+        enableCheckInOut,
+        allowEarlyCheckIn,
+        allowLateCheckIn,
+        allowEarlyCheckOut,
+        allowLateCheckOut,
+        autoCheckOut,
+        minimumPresenceDuration,
 
-        checkInCloseTime: settings?.checkInClose ?? '0H10M',
+        checkInCloseTime: checkInClose,
+        repeatable,
+        notifyOnStart,
 
-        repeatable: settings?.repeatable ?? false,
-        notifyOnStart: settings?.notifyOnStart ?? true,
-
-        // ✅ Marking Config (nested properly)
         markingConfig: {
-          type: settings?.markingConfig?.type ?? 'strict',
-          mode: settings?.markingConfig?.mode ?? 'no_code',
+          type: markingType,
+          mode: markingMode,
         },
       },
     });
@@ -641,11 +668,22 @@ export const markGeoAttendanceEntry = async (req, res) => {
 
       // Validate check-in close time
       if (
+        attendance.settings.enableCheckInOut &&
         !attendance.settings.allowLateCheckIn &&
         markTime > checkInCloseTime
       ) {
         throw createHttpError(403, 'Check-in time has closed.', {
           code: 'CHECK_IN_CLOSED',
+          allowedUntil: checkInCloseTime,
+        });
+      }
+
+      if (
+        !attendance.settings.enableCheckInOut && // ✅ Only in entry-only mode
+        markTime > entryEnd // or use a dedicated `entryCloseTime`
+      ) {
+        throw createHttpError(403, 'Entry window has closed.', {
+          code: 'ENTRY_CLOSED',
           allowedUntil: checkInCloseTime,
         });
       }
@@ -696,6 +734,7 @@ export const markGeoAttendanceEntry = async (req, res) => {
         checkOutStatus: studentRecord.checkOutStatus,
         pleaStatus: studentRecord.plea?.status,
         mode: attendance.settings.markingConfig.type,
+        enableCheckInOut: attendance.settings.enableCheckInOut,
       });
 
       if (studentRecord.finalStatus === 'present')

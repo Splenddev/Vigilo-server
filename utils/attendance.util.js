@@ -9,9 +9,18 @@ export const getFinalStatus = ({
   checkOutStatus,
   pleaStatus = null,
   mode = 'strict',
+  enableCheckInOut = true,
 }) => {
   if (pleaStatus === 'approved') {
     return 'excused';
+  }
+
+  if (!enableCheckInOut) {
+    if (checkInStatus === 'absent') return 'absent';
+    if (checkInStatus === 'on_time') return 'present';
+    if (checkInStatus === 'late')
+      return mode === 'detailed' ? 'late' : 'partial';
+    return 'partial';
   }
 
   const isAbsent = checkInStatus === 'absent' && checkOutStatus === 'missed';
