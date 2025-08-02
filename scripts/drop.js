@@ -1,38 +1,31 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import Attendance from '../models/attendance.model.js';
+import StudentAttendance from '../models/student.attendance.model.js';
 
-dotenv.config();
+dotenv.config(); // Load environment variables from .env
 
-const MONGO_URI = process.env.MONGO_URI;
-const COLLECTION_NAME = 'attendances';
-
-async function dropOldIndex() {
+const cleanupOrphanedStudentAttendance = async () => {
+  console.log(process.env.MONGO_URI);
   try {
-    await mongoose.connect(MONGO_URI);
-    console.log('✅ Connected to MongoDB');
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log('📡 Connected to MongoDB');
 
-    const db = mongoose.connection.db;
-    const collection = db.collection(COLLECTION_NAME);
+    const validIds = await Attendance.distinct('_id');
 
-    const indexes = await collection.indexes();
-    console.log('📜 Current indexes:', indexes);
+    const result = await StudentAttendance.deleteMany({
+      attendanceId: { $nin: validIds },
+    });
 
-    const targetIndexName = 'group_1_date_1';
-
-    const indexExists = indexes.find((idx) => idx.name === targetIndexName);
-    if (indexExists) {
-      await collection.dropIndex(targetIndexName);
-      console.log(`🗑️ Dropped index: ${targetIndexName}`);
-    } else {
-      console.log(`ℹ️ Index "${targetIndexName}" not found. Nothing to drop.`);
-    }
-
+    console.log(
+      `✅ Deleted ${result.deletedCount} orphaned student attendance records.`
+    );
+  } catch (error) {
+    console.error('❌ Cleanup failed:', error);
+  } finally {
     await mongoose.disconnect();
     console.log('🔌 Disconnected from MongoDB');
-  } catch (err) {
-    console.error('❌ Error while dropping index:', err.message);
-    process.exit(1);
   }
-}
+};
 
-dropOldIndex();
+cleanupOrphanedStudentAttendance();

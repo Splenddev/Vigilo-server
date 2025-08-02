@@ -999,6 +999,10 @@ export const deleteAttendance = async (req, res) => {
       });
     }
 
+    // 🔴 Delete all related student attendance records
+    await StudentAttendance.deleteMany({ attendanceId: attendance._id });
+
+    // 🔴 Delete the attendance itself
     await Attendance.findByIdAndDelete(attendanceId);
 
     // 🔔 Emit socket event to group room
@@ -1010,7 +1014,7 @@ export const deleteAttendance = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Attendance session deleted successfully.',
+      message: 'Attendance session and related records deleted successfully.',
       data: {
         attendanceId,
         classDate: attendance.classDate,

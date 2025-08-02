@@ -137,6 +137,11 @@ export const getDetailedStudentAttendanceSummary = async (req, res) => {
 
     const percent = (val) => ((val / total) * 100).toFixed(1) + '%';
 
+    console.log('onTime: ', onTime);
+    console.log('late: ', late);
+    console.log('absent: ', absent);
+    console.log('other: ', other);
+
     return res.status(200).json({
       success: true,
       studentId,
