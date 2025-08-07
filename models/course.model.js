@@ -28,7 +28,7 @@ const courseSchema = new mongoose.Schema(
       required: true,
       uppercase: true,
       trim: true,
-      match: /^[A-Z]{3}\d{3}$/, // e.g., CSC201
+      match: /^[A-Z]{3}\d{3}$/,
     },
     courseTitle: {
       type: String,
