@@ -266,6 +266,17 @@ const groupSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    breaks: {
+      type: [
+        {
+          title: { type: String, required: true },
+          from: { type: Date, required: true },
+          to: { type: Date, required: true },
+        },
+      ],
+      default: [],
+    },
+
     tags: {
       type: [String],
       default: [],

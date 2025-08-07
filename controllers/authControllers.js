@@ -12,27 +12,12 @@ import Attendance from '../models/attendance.model.js';
 import scheduleModel from '../models/schedule.model.js';
 
 export const register = async (req, res) => {
-  const { role, courses, ...userData } = req.body;
+  const { role, ...userData } = req.body;
   const profilePicture = req.file?.path || '';
   const normalizedRole = role?.toLowerCase();
 
-  let parsedCourses = [];
-
   if (!role) {
     return errorResponse(res, 'MISSING_ROLE', 'Role is required.', 400);
-  }
-
-  if (typeof courses === 'string') {
-    try {
-      parsedCourses = JSON.parse(courses);
-    } catch {
-      return errorResponse(
-        res,
-        'INVALID_COURSES_JSON',
-        'Invalid courses format passed.',
-        400
-      );
-    }
   }
 
   try {
@@ -54,15 +39,7 @@ export const register = async (req, res) => {
     if (normalizedRole === 'student') {
       user = await createStudent(userData, profilePicture);
     } else if (normalizedRole === 'class-rep') {
-      if (!parsedCourses || parsedCourses.length < 3) {
-        return errorResponse(
-          res,
-          'MIN_COURSE_REQUIREMENT',
-          'Class reps must add at least 3 valid courses.',
-          400
-        );
-      }
-      user = await createClassRep(userData, profilePicture, parsedCourses);
+      user = await createClassRep(userData, profilePicture);
     } else {
       return errorResponse(res, 'INVALID_ROLE', 'Invalid role provided.', 400);
     }

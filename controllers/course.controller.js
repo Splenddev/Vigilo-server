@@ -1,223 +1,308 @@
-import User from '../models/userModel.js';
+import Course from '../models/course.model.js';
 import { errorResponse } from '../utils/errorResponses.js';
+import Group from '../models/group.js';
+import { getPublicHolidays } from '../utils/getPublicHolidays.js';
 
 export const getCourses = async (req, res) => {
   try {
-    const userId = req.user?._id;
+    const user = req.user;
 
-    if (!userId) {
-      return errorResponse(res, 'UNAUTHORIZED', 'User not authenticated.', 401);
+    if (!user?.group) {
+      return errorResponse(
+        res,
+        'NO_GROUP',
+        'User must join a group first.',
+        403
+      );
     }
 
-    const user = await User.findById(userId).select('courses role');
-
-    if (!user) {
-      return errorResponse(res, 'USER_NOT_FOUND', 'User does not exist.', 404);
-    }
-
-    if (!user.courses || user.courses.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No courses found for this user.',
-        courses: [],
-      });
-    }
+    const courses = await Course.find({ group: user.group });
 
     return res.status(200).json({
       success: true,
-      message: `${user.role} courses retrieved.`,
-      courses: user.courses,
+      message: 'Courses retrieved successfully.',
+      courses,
     });
   } catch (err) {
     console.error('Error fetching courses:', err);
     return errorResponse(
       res,
-      err.code || 'FETCH_COURSES_FAILED',
-      err.message || 'Failed to retrieve courses.',
-      err.status || 500
+      'FETCH_COURSES_FAILED',
+      'Failed to retrieve courses.',
+      500
     );
   }
 };
 
+function countOverlapDays(startDate, endDate, excludedDates = []) {
+  let count = 0;
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    const d = new Date(current);
+    if (excludedDates.some((ex) => ex.toDateString() === d.toDateString())) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
 export const addCourse = async (req, res) => {
   try {
-    const userId = req.user?._id;
-    let incoming = req.body;
-
-    // If body is { courses: [...] } (from FormData JSON) unwrap it
-    if (Array.isArray(req.body.courses)) incoming = req.body.courses;
-    // If body itself is an array (raw JSON), leave it
-    if (!Array.isArray(incoming)) incoming = [incoming];
-
-    if (incoming.length === 0)
+    const user = req.user;
+    if (!user?.group) {
       return errorResponse(
         res,
-        'EMPTY_PAYLOAD',
-        'No course data received.',
-        400
+        'NO_GROUP',
+        'Join a group before adding courses.',
+        403
       );
-
-    const user = await User.findById(userId);
-    if (!user)
-      return errorResponse(res, 'USER_NOT_FOUND', 'User not found.', 404);
-
-    const added = [];
-
-    for (const draft of incoming) {
-      const { courseCode, courseTitle, unit, lecturer = {} } = draft;
-
-      if (!courseCode || !unit)
-        return errorResponse(
-          res,
-          'MISSING_FIELDS',
-          'Course code and unit are required.',
-          400
-        );
-
-      const code = courseCode.trim().toUpperCase();
-      const title = (courseTitle || '').trim();
-
-      const duplicate = user.courses.some(
-        (c) =>
-          c.courseCode === code ||
-          c.courseTitle.toLowerCase() === title.toLowerCase()
-      );
-      if (duplicate)
-        return errorResponse(
-          res,
-          'COURSE_ALREADY_EXISTS',
-          `Course ${code} already exists.`,
-          400
-        );
-
-      user.courses.push({
-        courseCode: code,
-        courseTitle: title,
-        unit: Number(unit),
-        lecturer: {
-          name: lecturer.name?.trim() || '',
-          email: lecturer.email?.trim() || '',
-        },
-      });
-
-      added.push(code);
     }
 
-    await user.save();
+    const {
+      courseCode,
+      courseTitle,
+      unit,
+      instructor: instructorRaw,
+      description = '',
+      level,
+      department,
+      faculty,
+      tags: tagsRaw,
+      durationWeeks,
+      classesPerWeek = 1,
+    } = req.body;
+
+    // Validate required fields
+    let instructor = null;
+    if (instructorRaw) {
+      try {
+        instructor = JSON.parse(instructorRaw);
+      } catch {
+        throw createHttpError.BadRequest('Invalid instructor format');
+      }
+    }
+
+    if (
+      !courseCode ||
+      !courseTitle ||
+      !unit ||
+      !level ||
+      !department ||
+      !faculty ||
+      !durationWeeks ||
+      !instructor.name
+    ) {
+      return errorResponse(
+        res,
+        'MISSING_FIELDS',
+        'Required fields: courseCode, unit, level, department, faculty, durationWeeks, instructor.name.',
+        400
+      );
+    }
+
+    const code = courseCode.trim().toUpperCase();
+    const title = (courseTitle || '').trim();
+
+    const exists = await Course.exists({
+      group: user.group,
+      $or: [
+        { courseCode: code },
+        { courseTitle: new RegExp(`^${title}$`, 'i') },
+      ],
+    });
+
+    if (exists) {
+      return errorResponse(
+        res,
+        'DUPLICATE_COURSE',
+        `Course "${code}" already exists.`,
+        400
+      );
+    }
+
+    // Fetch group for breaks
+    const group = await Group.findById(user.group);
+    if (!group) {
+      return errorResponse(res, 'GROUP_NOT_FOUND', 'Group not found.', 404);
+    }
+
+    let tags = [];
+    if (tagsRaw) {
+      try {
+        tags = JSON.parse(tagsRaw);
+      } catch {
+        throw createHttpError.BadRequest('Invalid tags format');
+      }
+    }
+
+    // Fetch holidays and merge with breaks
+    const currentYear = new Date().getFullYear();
+    const holidays = await getPublicHolidays(currentYear, 'NG');
+
+    const groupBreaks = Array.isArray(group.breaks)
+      ? group.breaks.flatMap((b) => {
+          const from = new Date(b.from);
+          const to = new Date(b.to);
+          const dates = [];
+          const current = new Date(from);
+          while (current <= to) {
+            dates.push(new Date(current));
+            current.setDate(current.getDate() + 1);
+          }
+          return dates;
+        })
+      : [];
+
+    const excludedDates = [...groupBreaks, ...holidays];
+
+    // Estimate realistic expectedSchedules
+    const start = new Date();
+    const end = new Date();
+    end.setDate(start.getDate() + durationWeeks * 7);
+
+    const totalDays = durationWeeks * 7;
+    const totalClassSlots = durationWeeks * classesPerWeek;
+    const excludedCount = countOverlapDays(start, end, excludedDates);
+    const classDaysMissed = Math.floor(
+      (excludedCount / totalDays) * totalClassSlots
+    );
+    const expectedSchedules = Math.max(0, totalClassSlots - classDaysMissed);
+
+    const thumbnail = req.files?.thumbnail?.[0]?.path || null;
+    const instructorImage = req.files?.instructorImage?.[0]?.path || null;
+
+    // Attach image to instructor if present
+    if (instructor && instructorImage) {
+      instructor.image = instructorImage;
+    }
+
+    // Create course
+    const newCourse = await Course.create({
+      courseCode: code,
+      courseTitle: title,
+      unit: Number(unit),
+      instructor: {
+        name: instructor.name?.trim(),
+        email: instructor.email?.trim() || '',
+        image: instructor.image?.trim() || '',
+      },
+      description: description.trim(),
+      level: level.trim(),
+      department: department.trim(),
+      faculty: faculty.trim(),
+      thumbnail,
+      tags: Array.isArray(tags) ? tags : [],
+      durationWeeks: Number(durationWeeks),
+      classesPerWeek: Number(classesPerWeek),
+      expectedSchedules,
+      createdBy: user._id,
+      group: user.group,
+    });
 
     return res.status(201).json({
       success: true,
-      message: `Added ${added.length} course${added.length > 1 ? 's' : ''}.`,
-      courses: user.courses,
+      message: `Course "${code}" added successfully.`,
+      course: newCourse,
     });
   } catch (err) {
     console.error('Add Course Error:', err);
     return errorResponse(
       res,
-      err.code || 'ADD_COURSE_FAILED',
-      err.message || 'Failed to add course(s).',
-      err.status || 500
+      'ADD_COURSE_FAILED',
+      'Failed to add course.',
+      500
     );
   }
 };
 
 export const editCourse = async (req, res) => {
   try {
-    const userId = req.user?._id;
     const { courseCode } = req.params;
     const { courseTitle, unit, lecturer } = req.body;
+    const user = req.user;
 
-    if (!courseCode) {
-      return errorResponse(
-        res,
-        'MISSING_CODE',
-        'Course code is required in params.',
-        400
-      );
+    if (!user?.group) {
+      return errorResponse(res, 'NO_GROUP', 'You must join a group.', 403);
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return errorResponse(res, 'USER_NOT_FOUND', 'User not found.', 404);
-    }
+    const course = await Course.findOne({
+      courseCode: courseCode.toUpperCase(),
+      group: user.group,
+    });
 
-    const courseIndex = user.courses.findIndex(
-      (c) => c.courseCode === courseCode.toUpperCase()
-    );
-
-    if (courseIndex === -1) {
+    if (!course) {
       return errorResponse(res, 'COURSE_NOT_FOUND', 'Course not found.', 404);
     }
 
-    // Check for duplicate title (excluding the current one)
-    const titleExists = user.courses.some(
-      (c, i) =>
-        i !== courseIndex &&
-        c.courseTitle?.toLowerCase().trim() ===
-          courseTitle?.toLowerCase().trim()
-    );
-    if (titleExists) {
-      return errorResponse(
-        res,
-        'DUPLICATE_TITLE',
-        'Another course already uses this title.',
-        400
-      );
+    // Check for title duplication
+    if (courseTitle) {
+      const titleExists = await Course.findOne({
+        group: user.group,
+        courseTitle: new RegExp(`^${courseTitle.trim()}$`, 'i'),
+        _id: { $ne: course._id },
+      });
+
+      if (titleExists) {
+        return errorResponse(
+          res,
+          'DUPLICATE_TITLE',
+          'Another course already uses this title.',
+          400
+        );
+      }
     }
 
-    const updated = {
-      ...user.courses[courseIndex]._doc,
-      courseTitle: courseTitle?.trim(),
-      unit: Number(unit),
-      lecturer: {
-        name: lecturer?.name?.trim() || '',
-        email: lecturer?.email?.trim() || '',
-      },
+    course.courseTitle = courseTitle?.trim() || course.courseTitle;
+    course.unit = unit ?? course.unit;
+    course.lecturer = {
+      name: lecturer?.name?.trim() || '',
+      email: lecturer?.email?.trim() || '',
     };
 
-    user.courses[courseIndex] = updated;
-    await user.save();
+    await course.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Course updated successfully.',
-      course: updated,
+      message: 'Course updated.',
+      course,
     });
   } catch (err) {
     console.error('Edit Course Error:', err);
     return errorResponse(
       res,
-      err.code || 'EDIT_COURSE_FAILED',
-      err.message || 'Failed to update course.',
-      err.status || 500
+      'EDIT_COURSE_FAILED',
+      'Failed to edit course.',
+      500
     );
   }
 };
 
 export const deleteCourse = async (req, res) => {
-  const { courseCode } = req.params;
-
   try {
-    const user = await User.findById(req.user._id);
+    const { courseCode } = req.params;
+    const user = req.user;
 
-    const index = user.courses.findIndex(
-      (c) => c.courseCode.toLowerCase() === courseCode.toLowerCase()
-    );
+    const course = await Course.findOneAndDelete({
+      courseCode: courseCode.toUpperCase(),
+      group: user.group,
+    });
 
-    if (index === -1) {
-      return errorResponse(res, 'COURSE_NOT_FOUND', 'Course not found.', 404);
+    if (!course) {
+      return errorResponse(
+        res,
+        'COURSE_NOT_FOUND',
+        'Course not found or unauthorized.',
+        404
+      );
     }
 
-    user.courses.splice(index, 1);
-    await user.save();
-
-    res.status(200).json({ success: true, message: 'Course deleted.' });
+    return res.status(200).json({
+      success: true,
+      message: 'Course deleted.',
+    });
   } catch (err) {
-    return errorResponse(
-      res,
-      'COURSE_DELETE_FAILED',
-      'Failed to delete course.',
-      500
-    );
+    console.error('Delete Course Error:', err);
+    return errorResponse(res, 'DELETE_FAILED', 'Failed to delete course.', 500);
   }
 };

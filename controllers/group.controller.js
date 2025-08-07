@@ -12,7 +12,6 @@ export const createGroup = async (req, res) => {
     const user = req.user;
     const {
       groupName,
-      course = '',
       description = '',
       classRules = '',
       visibility = '',
@@ -21,17 +20,15 @@ export const createGroup = async (req, res) => {
       department,
       faculty,
       level,
-      assistantReps,
       attendancePolicy,
       tags,
-      schedules,
+      breaks,
     } = req.body;
 
     // Parse JSON fields
-    const parsedAssistantReps = JSON.parse(assistantReps || '[]');
     const parsedPolicy = JSON.parse(attendancePolicy || '{}');
     const parsedTags = JSON.parse(tags || '[]');
-    const parsedSchedules = JSON.parse(schedules || '[]');
+    const parsedBreaks = JSON.parse(breaks || '[]'); // 🆕
 
     // Basic validation
     if (user.role !== 'class-rep') {
@@ -58,33 +55,31 @@ export const createGroup = async (req, res) => {
         .json({ success: false, message: 'Group already exists' });
     }
 
-    // Resolve assistant reps to ObjectIds
-    let validAssistantReps = [];
-    if (Array.isArray(parsedAssistantReps) && parsedAssistantReps.length > 0) {
-      const repsFound = await User.find({
-        matricNumber: { $in: parsedAssistantReps.map((rep) => rep.trim()) },
-      }).select('_id');
+    const validBreaks = Array.isArray(parsedBreaks)
+      ? parsedBreaks.filter((b) => {
+          if (
+            !b ||
+            typeof b.title !== 'string' ||
+            typeof b.from !== 'string' ||
+            typeof b.to !== 'string'
+          ) {
+            return false;
+          }
 
-      if (repsFound.length !== parsedAssistantReps.length) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'One or more assistant reps are invalid or not registered users.',
-        });
-      }
+          const fromDate = new Date(b.from);
+          const toDate = new Date(b.to);
 
-      validAssistantReps = repsFound.map((u) => u._id);
-    }
+          return !isNaN(fromDate) && !isNaN(toDate) && fromDate < toDate;
+        })
+      : [];
 
     const bannerUrl = req.file?.path || '';
 
     const group = await Group.create({
       groupName,
-      course,
       bannerUrl,
       description,
       classRules,
-      assistantReps: validAssistantReps,
       attendancePolicy: parsedPolicy,
       visibility,
       academicYear,
@@ -93,7 +88,7 @@ export const createGroup = async (req, res) => {
       faculty,
       level,
       tags: parsedTags,
-      schedules: parsedSchedules,
+      breaks: validBreaks,
 
       createdBy: user._id,
       creator: {

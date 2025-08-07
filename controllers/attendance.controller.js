@@ -435,7 +435,9 @@ export const getGroupAttendanceTab = async (req, res) => {
       );
 
     const totalSessions = closedAttendances.length;
-    const totalPresent = countByStatus(closedAttendances, 'present');
+    const totalPresent =
+      countByStatus(closedAttendances, 'present') +
+      countByStatus(closedAttendances, 'on_time');
     const totalLate = countByStatus(closedAttendances, 'late');
     const totalAbsent = countByStatus(closedAttendances, 'absent');
     const totalMarked = totalPresent + totalLate;
@@ -495,7 +497,7 @@ export const getGroupAttendanceTab = async (req, res) => {
         lateMarks: s.lateMarks,
         attendanceRate:
           s.attendanceCount > 0
-            ? ((s.presentCount / s.attendanceCount) * 100).toFixed(1)
+            ? ((s.absences / s.attendanceCount) * 100).toFixed(1)
             : '0.0',
       }))
       .filter((s) => s.absences > 0)

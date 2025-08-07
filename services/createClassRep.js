@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { SALT_ROUNDS } from '../utils/constants.js';
 import ClassRep from '../models/classRep.js';
 
-export const createClassRep = async (data, profilePicture, courses = []) => {
+export const createClassRep = async (data, profilePicture) => {
   const {
     name,
     email,
@@ -46,7 +46,6 @@ export const createClassRep = async (data, profilePicture, courses = []) => {
     level,
     matricNumber,
     profilePicture: profilePicture || null,
-    courses,
     group: null,
   });
 
