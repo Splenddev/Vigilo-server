@@ -154,5 +154,7 @@ const courseSchema = new mongoose.Schema(
   }
 );
 
+courseSchema.index({ courseCode: 1, group: 1 }, { unique: true });
+
 const Course = mongoose.models.Course || mongoose.model('Course', courseSchema);
 export default Course;

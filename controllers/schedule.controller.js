@@ -5,25 +5,45 @@ import {
   detectCourseConflicts,
   normalisePayload,
   validateClassType,
-  validateLeadTime,
+  validateCourseScheduleTemplate,
 } from '../utils/schedule.utils.js';
 import scheduleModel from '../models/schedule.model.js';
 import createHttpError from 'http-errors';
+import Course from '../models/course.model.js';
 
 export const createSchedule = async (req, res, next) => {
   try {
-    /* 1.  Normalise & audit-trail */
     const rawPayload = { ...req.body, createdBy: req.user?.id };
+
     if (
       !rawPayload.createdBy ||
       !mongoose.Types.ObjectId.isValid(rawPayload.createdBy)
-    )
+    ) {
       throw createHttpError(400, 'Invalid or missing creator ID.');
+    }
+
+    if (
+      !rawPayload.course ||
+      !mongoose.Types.ObjectId.isValid(rawPayload.course)
+    ) {
+      throw createHttpError(400, 'Invalid or missing course ID.');
+    }
+
+    const course = await Course.findById(rawPayload.course);
+
+    if (!course) throw createHttpError(404, 'Course not found.');
+
+    if (course.completed)
+      throw createHttpError(400, 'Cannot schedule a completed course.');
 
     const payload = normalisePayload(rawPayload);
 
+    if (payload.groupId.toString() !== course.group.toString()) {
+      throw createHttpError(400, 'Schedule group must match course group.');
+    }
+
     validateClassType(payload);
-    validateLeadTime(payload);
+    validateCourseScheduleTemplate(payload, course);
     await detectConflicts(payload);
     await detectCourseConflicts(payload);
 

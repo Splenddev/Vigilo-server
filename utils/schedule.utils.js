@@ -50,14 +50,46 @@ export const validateClassType = ({
 };
 
 // Checks notificationLeadTime ≤ shortest duration
-export const validateLeadTime = ({ classDaysTimes, notificationLeadTime }) => {
-  console.log(classDaysTimes);
-  const minDuration = Math.min(
-    ...classDaysTimes.map(({ timing }) => {
-      const dur = toMinutes(timing.endTime) - toMinutes(timing.startTime);
-      return dur;
-    })
-  );
+export const validateCourseScheduleTemplate = (
+  { classDaysTimes, notificationLeadTime },
+  course
+) => {
+  if (!Array.isArray(classDaysTimes) || classDaysTimes.length === 0) {
+    throw createHttpError(400, 'At least one class day/time must be provided.');
+  }
+
+  if (classDaysTimes.length !== course.classesPerWeek) {
+    throw createHttpError(
+      400,
+      `This course requires exactly ${course.classesPerWeek} class sessions per week, but you have provided ${classDaysTimes.length}.
+
+      To continue, please select ${course.classesPerWeek} distinct days and provide valid start and end times for each.
+
+      Each session must:
+      - Be on a different day (e.g., Monday, Wednesday, Friday)
+      - Have a start and end time in 24-hour format (e.g., 10:00 to 12:00)
+
+      Make sure you haven't skipped any or added extra sessions.`,
+      { code: 'INVALID_CLASS_COUNT' }
+    );
+  }
+
+  const durations = classDaysTimes.map(({ timing }, index) => {
+    const start = toMinutes(timing.startTime);
+    const end = toMinutes(timing.endTime);
+    const duration = end - start;
+
+    if (duration <= 0) {
+      throw createHttpError(
+        400,
+        `Invalid timing for session ${index + 1}: startTime must be before endTime.`
+      );
+    }
+
+    return duration;
+  });
+
+  const minDuration = Math.min(...durations);
 
   if (notificationLeadTime > minDuration) {
     throw createHttpError(

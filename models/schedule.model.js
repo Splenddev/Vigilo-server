@@ -94,6 +94,11 @@ const scheduleSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    course: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Course',
+      required: true,
+    },
 
     // Course & Lecturer Info
     courseTitle: { type: String, required: true },
@@ -111,8 +116,8 @@ const scheduleSchema = new mongoose.Schema(
     virtualLink: { type: String },
     maxStudents: { type: Number },
     classLocation: {
-      lat: { type: Number },
-      lng: { type: Number },
+      lat: { type: Number, required: true },
+      lng: { type: Number, required: true },
     },
 
     // Class Days & Times
