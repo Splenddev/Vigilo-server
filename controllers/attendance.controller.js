@@ -971,68 +971,6 @@ export const finalizeSingleAttendance = async (req, res) => {
   }
 };
 
-export const deleteAttendance = async (req, res) => {
-  try {
-    const { attendanceId } = req.params;
-    const { io } = req;
-
-    if (!mongoose.Types.ObjectId.isValid(attendanceId)) {
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_ATTENDANCE_ID',
-        message: 'The provided attendanceId is not a valid MongoDB ObjectId.',
-      });
-    }
-
-    const attendance = await Attendance.findById(attendanceId);
-    if (!attendance) {
-      return res.status(404).json({
-        success: false,
-        code: 'ATTENDANCE_NOT_FOUND',
-        message: 'Attendance session not found.',
-      });
-    }
-
-    if (attendance.status === 'active') {
-      return res.status(403).json({
-        success: false,
-        code: 'ATTENDANCE_ACTIVE',
-        message: 'Cannot delete an active attendance session.',
-      });
-    }
-
-    // 🔴 Delete all related student attendance records
-    await StudentAttendance.deleteMany({ attendanceId: attendance._id });
-
-    // 🔴 Delete the attendance itself
-    await Attendance.findByIdAndDelete(attendanceId);
-
-    // 🔔 Emit socket event to group room
-    io?.to(attendance.groupId.toString()).emit('attendance:deleted', {
-      attendanceId,
-      classDate: attendance.classDate,
-      groupId: attendance.groupId,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Attendance session and related records deleted successfully.',
-      data: {
-        attendanceId,
-        classDate: attendance.classDate,
-        groupId: attendance.groupId,
-      },
-    });
-  } catch (err) {
-    console.error('❌ Delete Attendance Error:', err);
-    return res.status(500).json({
-      success: false,
-      code: 'SERVER_ERROR',
-      message: 'Something went wrong while deleting the attendance session.',
-    });
-  }
-};
-
 export const reopenAttendanceSession = async (req, res) => {
   try {
     const { attendanceId } = req.params;

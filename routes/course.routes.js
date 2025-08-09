@@ -1,7 +1,6 @@
 import express from 'express';
 import {
   addCourse,
-  deleteCourse,
   editCourse,
   getCourses,
 } from '../controllers/course.controller.js';
@@ -26,7 +25,5 @@ courseRouter.post(
 );
 
 courseRouter.put('/edit/:courseCode', allowClassRepsOnly, editCourse);
-
-courseRouter.delete('/delete/:courseCode', allowClassRepsOnly, deleteCourse);
 
 export default courseRouter;

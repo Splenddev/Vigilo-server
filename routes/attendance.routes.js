@@ -3,7 +3,6 @@ import { protect } from '../middlewares/auth.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
 import {
   createAttendance,
-  deleteAttendance,
   finalizeSingleAttendance,
   getGroupAttendances,
   getGroupAttendanceTab,
@@ -28,7 +27,6 @@ attendanceRoutes.post(
   allowClassRepsOnly,
   reopenAttendanceSession
 );
-attendanceRoutes.delete('/:attendanceId', allowClassRepsOnly, deleteAttendance);
 
 //general
 attendanceRoutes.get('/groups/:groupId/', getGroupAttendances);

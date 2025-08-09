@@ -277,32 +277,3 @@ export const editCourse = async (req, res) => {
     );
   }
 };
-
-export const deleteCourse = async (req, res) => {
-  try {
-    const { courseCode } = req.params;
-    const user = req.user;
-
-    const course = await Course.findOneAndDelete({
-      courseCode: courseCode.toUpperCase(),
-      group: user.group,
-    });
-
-    if (!course) {
-      return errorResponse(
-        res,
-        'COURSE_NOT_FOUND',
-        'Course not found or unauthorized.',
-        404
-      );
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Course deleted.',
-    });
-  } catch (err) {
-    console.error('Delete Course Error:', err);
-    return errorResponse(res, 'DELETE_FAILED', 'Failed to delete course.', 500);
-  }
-};
