@@ -21,6 +21,7 @@ import notificationRouter from './routes/notifications.routes.js';
 
 import { errorHandler } from './middlewares/errorHandler.js';
 import validatorRouter from './routes/validators.routes.js';
+import scheduleInstance from './routes/scheduleInstance.route.js';
 
 dotenv.config();
 const app = express();
@@ -78,6 +79,7 @@ app.use('/app/auth/send-otp', authLimiter);
 app.use('/app/auth', userRoutes);
 app.use('/app/groups', groupRoutes);
 app.use('/app/schedule', scheduleRoutes);
+app.use('/app/schedule-instance', scheduleInstance);
 app.use('/app/attendance', attendanceRoutes);
 app.use('/app/courses', courseRouter);
 app.use('/app/validate', validatorRouter);

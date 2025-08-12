@@ -6,6 +6,7 @@ import { sendNotification } from '../utils/sendNotification.js';
 import Notification from '../models/notification.model.js';
 import { hasRecentlySentNotification } from '../utils/rateLimitNotification.js';
 import StudentAttendance from '../models/student.attendance.model.js';
+import { syncScheduleInstancesWithGroup } from '../utils/scheduleInstanceUtils.js';
 
 export const createGroup = async (req, res) => {
   try {
@@ -148,7 +149,7 @@ export const searchGroup = async (req, res) => {
 
   if (faculty) filters.faculty = faculty;
   if (department) filters.department = department;
-  if (level) filters.level = level + 'L';
+  if (level) filters.level = level;
 
   try {
     let groups = await Group.find(filters)
@@ -473,6 +474,8 @@ export const approveJoinRequest = async (req, res) => {
       classDate: today,
       status: 'active',
     });
+
+    await syncScheduleInstancesWithGroup(group._id, group.members);
 
     if (activeAttendance) {
       const existing = await StudentAttendance.findOne({

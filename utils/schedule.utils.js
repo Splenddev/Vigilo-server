@@ -145,19 +145,43 @@ export const detectConflicts = async ({ groupId, classDaysTimes }) => {
   }
 };
 
-export const detectCourseConflicts = async (payload) => {
-  const { groupId, courseTitle, courseCode, creditUnit } = payload;
-  const match = await scheduleModel.findOne({
+function timeOverlap(start1, end1, start2, end2) {
+  // Returns true if time intervals overlap
+  return start1 < end2 && end1 > start2;
+}
+
+export const detectScheduleConflicts = async (payload) => {
+  const { groupId, classDaysTimes, scheduleIdToExclude } = payload;
+
+  // Fetch all schedules for group excluding current one (if updating)
+  const existingSchedules = await scheduleModel.find({
     groupId,
-    courseCode,
-    courseTitle,
-    creditUnit,
+    ...(scheduleIdToExclude && { _id: { $ne: scheduleIdToExclude } }),
   });
 
-  if (match) {
-    throw createHttpError(
-      409,
-      `Conflict: "${courseTitle} (${courseCode})" already has a schedule.`
-    );
+  // For each new day/time in incoming schedule, check against all existing schedules
+  for (const newDayTime of classDaysTimes) {
+    const { day: newDay, timing: newTiming } = newDayTime;
+    for (const schedule of existingSchedules) {
+      for (const existingDayTime of schedule.classDaysTimes) {
+        if (existingDayTime.day === newDay) {
+          const { startTime: existingStart, endTime: existingEnd } =
+            existingDayTime.timing;
+          if (
+            timeOverlap(
+              newTiming.startTime,
+              newTiming.endTime,
+              existingStart,
+              existingEnd
+            )
+          ) {
+            throw createHttpError(
+              409,
+              `Schedule conflict on ${newDay} between ${newTiming.startTime} - ${newTiming.endTime} and existing schedule "${schedule.courseTitle}" (${schedule.courseCode}) from ${existingStart} to ${existingEnd}`
+            );
+          }
+        }
+      }
+    }
   }
 };
