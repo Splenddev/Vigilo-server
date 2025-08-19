@@ -3,6 +3,7 @@ import { protect } from '../middlewares/auth.js';
 import {
   getScheduleInstanceById,
   getTodayInstances,
+  updateScheduleInstanceStatus,
 } from '../controllers/scheduleInstance.js';
 import { allowClassRepsOnly } from '../middlewares/role.middleware.js';
 
@@ -13,5 +14,6 @@ scheduleInstance.use(protect);
 
 scheduleInstance.get('/:scheduleId', getScheduleInstanceById);
 scheduleInstance.get('/rep/today', allowClassRepsOnly, getTodayInstances);
+scheduleInstance.patch('/:id/status', updateScheduleInstanceStatus);
 
 export default scheduleInstance;

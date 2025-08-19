@@ -74,3 +74,69 @@ export const getTodayInstances = async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+export const updateScheduleInstanceStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { classStatus, rescheduledToDate, updatedTime, lecturerMessage } =
+      req.body;
+
+    if (!classStatus) {
+      throw createHttpError(400, 'classStatus is required');
+    }
+
+    // Validate status
+    const allowedStatuses = [
+      'unconfirmed',
+      'pending_approval',
+      'rescheduled',
+      'postponed',
+      'holding',
+      'cancelled',
+      'makeup',
+      'offsite',
+    ];
+
+    if (!allowedStatuses.includes(classStatus)) {
+      throw createHttpError(400, 'Invalid classStatus');
+    }
+
+    // Find the schedule instance
+    const instance = await scheduleInstanceModel.findById(id);
+    if (!instance) {
+      throw createHttpError(404, 'Schedule instance not found');
+    }
+
+    // For rescheduled/postponed/makeup, require new date
+    const requiresDate = ['rescheduled', 'postponed', 'makeup'];
+    if (requiresDate.includes(classStatus) && !rescheduledToDate) {
+      throw createHttpError(400, `${classStatus} requires rescheduledToDate`);
+    }
+
+    // Update fields
+    instance.classStatus = classStatus;
+
+    if (requiresDate.includes(classStatus)) {
+      instance.rescheduledToDate = new Date(rescheduledToDate);
+      instance.updatedTime = updatedTime || { start: null, end: null };
+    } else {
+      instance.rescheduledToDate = null;
+      instance.updatedTime = { start: null, end: null };
+    }
+
+    // Add lecturer message if provided
+    if (lecturerMessage && lecturerMessage.trim() !== '') {
+      instance.lecturerMessages.push({
+        text: lecturerMessage.trim(),
+        type: 'info',
+        author: req.user?.name || 'Class Rep', // assuming req.user exists
+      });
+    }
+
+    const updatedInstance = await instance.save();
+
+    res.status(200).json(updatedInstance);
+  } catch (err) {
+    next(err);
+  }
+};
