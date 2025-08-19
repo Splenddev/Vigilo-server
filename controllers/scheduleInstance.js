@@ -45,8 +45,6 @@ export const getTodayInstances = async (req, res) => {
 
     const scheduleIds = schedules.map((s) => s._id);
 
-    console.log(scheduleIds);
-
     if (scheduleIds.length === 0) {
       return res.json({ success: true, promptMessage: null, instances: [] });
     }
@@ -66,8 +64,6 @@ export const getTodayInstances = async (req, res) => {
       promptMessage = `You have ${instances.length} class instance(s) today. Please confirm their status.`;
     }
 
-    console.log(instances);
-
     res.json({ success: true, promptMessage, instances });
   } catch (err) {
     console.error("Error fetching today's schedule instances:", err);
@@ -75,7 +71,7 @@ export const getTodayInstances = async (req, res) => {
   }
 };
 
-export const updateScheduleInstanceStatus = async (req, res, next) => {
+export const updateScheduleInstanceStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { classStatus, rescheduledToDate, updatedTime, lecturerMessage } =
@@ -135,8 +131,9 @@ export const updateScheduleInstanceStatus = async (req, res, next) => {
 
     const updatedInstance = await instance.save();
 
-    res.status(200).json(updatedInstance);
+    res.status(200).json({ success: true, data: updatedInstance });
   } catch (err) {
-    next(err);
+    console.error("Error fetching today's schedule instances:", err);
+    res.status(500).json({ message: 'Internal server error' });
   }
 };
