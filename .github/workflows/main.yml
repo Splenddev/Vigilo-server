@@ -1,4 +1,4 @@
-name: deploy rockelNord
+name: deploy Bissouman
 
 on:
   push:
