@@ -1,4 +1,4 @@
-name: deploy VIKfahad
+name: deploy sfcForthr
 
 on:
   push:
