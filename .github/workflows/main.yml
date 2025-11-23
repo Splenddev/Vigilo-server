@@ -1,4 +1,4 @@
-name: deploy sfcForthr
+name: deploy SFCWINtoANKK
 
 on:
   push:
