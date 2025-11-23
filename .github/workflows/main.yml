@@ -1,4 +1,4 @@
-name: deploy SFCWINtoANKK
+name: deploy WakTheDev
 
 on:
   push:
