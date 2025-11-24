@@ -1,4 +1,4 @@
-name: deploy WakTheDev
+name: deploy ZilongNim
 
 on:
   push:
