@@ -1,4 +1,4 @@
-name: deploy YunZhao
+name: deploy ZhaoLingFeng
 
 on:
   push:
