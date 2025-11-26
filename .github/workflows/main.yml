@@ -1,4 +1,4 @@
-name: deploy TianLin
+name: deploy Ternt-Arnoild
 
 on:
   push:
