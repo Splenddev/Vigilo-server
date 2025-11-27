@@ -1,4 +1,4 @@
-name: deploy DavidDeGea
+name: deploy WallaceNouri
 
 on:
   push:
