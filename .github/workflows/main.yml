@@ -1,4 +1,4 @@
-name: deploy Ternt-Arnoild
+name: deploy DavidDeGea
 
 on:
   push:
