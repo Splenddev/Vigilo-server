@@ -1,4 +1,4 @@
-name: deploy AlesandroDiorio
+name: deploy FilanoUno
 
 on:
   push:
