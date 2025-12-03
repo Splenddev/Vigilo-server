@@ -1,4 +1,4 @@
-name: deploy hanimJia
+name: deploy RajTheFeed
 
 on:
   push:
