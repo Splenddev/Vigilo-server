@@ -1,4 +1,4 @@
-name: deploy RajTheFeed
+name: deploy TakeFusaMiyura
 
 on:
   push:
