@@ -1,4 +1,4 @@
-name: deploy AnodizeForm
+name: deploy MikazukiMina
 
 on:
   push:
