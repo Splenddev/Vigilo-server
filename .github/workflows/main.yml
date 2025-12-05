@@ -1,4 +1,4 @@
-name: deploy HorseOfposeidon
+name: deploy TinoSullivan
 
 on:
   push:
