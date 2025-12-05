@@ -1,4 +1,4 @@
-name: deploy MikazukiMina
+name: deploy HorseOfposeidon
 
 on:
   push:
