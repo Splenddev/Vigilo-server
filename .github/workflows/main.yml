@@ -1,4 +1,4 @@
-name: deploy XieXienbi
+name: deploy riggedFire
 
 on:
   push:
